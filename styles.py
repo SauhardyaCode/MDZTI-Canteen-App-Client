@@ -94,6 +94,19 @@ GENERATE_PANEL_INPUT_STYLESHEET = """
     }
 """
 
+SPECIAL_PANEL_INPUT_STYLESHEET = """
+    .QFrame {
+        background-color: rgb(230, 214, 182);
+        padding: 10px 30px;
+    }
+    .Qlabel, .QTimeEdit {
+        padding: 5px 10px;
+        font-size: 16px;
+    }
+    .QCheckBox {
+        padding: 0px;
+    }
+"""
 
 SELECTED_WINDOW_BUTTON_STYLESHEET = """
     QPushButton, QPushButton:hover, QPushButton:pressed {
@@ -157,5 +170,23 @@ SUB_HEADING_STYLESHEET = """
         font-size: 25px;
         font-weight: 500;
         text-decoration: underline;
+    }
+"""
+
+DAY_FRAME_STYLESHEET = """
+    .QFrame{
+        margin: 0px;
+        padding: 0px;
+    }
+    .QLabel, .QPushButton {
+        font-size: 12px;
+    }
+"""
+
+DAY_SUB_FRAME_STYLESHEET = """
+    .QFrame {
+        margin: 0px;
+        padding: 0px;
+        background-color: #ffffff;
     }
 """

@@ -2,6 +2,8 @@ from typing import Callable, Dict, Any
 from PyQt6.QtCore import pyqtSignal, QThread, QObject
 from dotenv import load_dotenv
 import os
+import time
+import secrets
 import requests
 from core.password_hasher import PasswordHasher
 from core.utils import UtilityFunctions, API_ENDPOINTS
@@ -51,12 +53,14 @@ class ClientNetworkThread(QThread):
             self.operation_failed.emit(self.action, f"Invalid API endpoint requested")
 
     def __generate_security_headers(self) -> dict:
-        timestamp = self.__utilities.get_current_ist_datetime().strftime("%Y-%m-%d %H:%M:%S")
-        combined_payload = f"{self.__SECRET_KEY}||{timestamp}"
+        timestamp_ms = str(int(time.time()*1000))
+        nonce = secrets.token_hex(16)
+        combined_payload = f"{self.__SECRET_KEY}||{timestamp_ms}||{nonce}"
         network_signature = self.__hasher.create_hash(combined_payload)
 
         return {
-            "x-app-timestamp": timestamp,
+            "x-app-timestamp": timestamp_ms,
+            "x-app-nonce": nonce,
             "x-app-signature": network_signature,
             "Content-Type": "application/json"
         }
