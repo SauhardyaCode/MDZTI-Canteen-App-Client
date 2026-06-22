@@ -27,7 +27,7 @@ WEEKDAYS_ABBR = (day[:3] for day in WEEKDAYS)
 
 API_ENDPOINTS = {
     "fetch-physical-token-stats": "get-existing-token-stats",
-    "fetch-available-token-list": "get-available-tokens",
+    "fetch-status-wise-token-list": "get-tokens-by-status",
     "fetch-active-trainee-list": "get-trainee-list",
     "fetch-current-settings": "get-settings",
     "fetch-total-meal-preferences-count": "get-total-meal-data",
@@ -37,7 +37,8 @@ API_ENDPOINTS = {
     "assign-existing-token-to-trainee": "assign-token",
     "verify-qr-token-scanned-by-trainee": "verify-token",
     "change-course-interval-of-trainees": "change-course-interval",
-    "configure-special-settings-for-trainees": "apply-special-config"
+    "configure-special-settings-for-trainees": "apply-special-config",
+    "destroy-wasted-tokens-and-replace-if-assigned": "destroy-token"
 }
 
 ALLOWED_CONFIG_KEYS = ("breakfast_time_slot", "lunch_time_slot", "dinner_time_slot", "only_veg_days")
@@ -211,6 +212,7 @@ class LoadingOverlay(QWidget):
 class ClickableColorCalendar(QWidget):
     def __init__(self):
         super().__init__()
+        self.fmt = QTextCharFormat()
         self.selected_dates: set[QDate] = set()
         layout = QVBoxLayout(self)
         
@@ -224,24 +226,25 @@ class ClickableColorCalendar(QWidget):
         if date < QDate.currentDate():
             return
 
-        # Create a blank text format container
-        fmt = QTextCharFormat()
-        
         if date in self.selected_dates:
             self.selected_dates.remove(date)
             # Setting background to transparent restores the default calendar style
-            fmt.setBackground(QColor(Qt.GlobalColor.transparent))
-            fmt.setForeground(QColor(Qt.GlobalColor.black)) # Reset text to black
+            self.fmt.setBackground(QColor(Qt.GlobalColor.transparent))
+            self.fmt.setForeground(QColor(Qt.GlobalColor.black)) # Reset text to black
         else:
             self.selected_dates.add(date)
             # Apply your custom highlight color theme
-            fmt.setBackground(QColor("#6388a4")) # Modern blue accent
-            fmt.setForeground(QColor(Qt.GlobalColor.white)) # Crisp white text digits
+            self.fmt.setBackground(QColor("#6388a4")) # Modern blue accent
+            self.fmt.setForeground(QColor(Qt.GlobalColor.white)) # Crisp white text digits
             
         # Apply the format to the specific grid cell row layout
-        self.calendar.setDateTextFormat(date, fmt)
+        self.calendar.setDateTextFormat(date, self.fmt)
     
     def clear(self):
+        self.fmt.setBackground(QColor(Qt.GlobalColor.transparent))
+        self.fmt.setForeground(QColor(Qt.GlobalColor.black))
+        for date in self.selected_dates:
+            self.calendar.setDateTextFormat(date, self.fmt)
         self.selected_dates.clear()
 
 class DaySelectionMapping(QWidget):
@@ -306,7 +309,7 @@ class DaySelectionMapping(QWidget):
 
 class AppStateManager(QObject):
     token_stats_updated = pyqtSignal(dict)
-    token_available_updated = pyqtSignal(list)
+    tokens_by_status_updated = pyqtSignal(dict)
     active_trainees_updated = pyqtSignal(list)
     settings_updated = pyqtSignal(dict)
 
@@ -314,13 +317,13 @@ class AppStateManager(QObject):
         super().__init__()
 
         self.token_stats = {}
-        self.token_available = []
+        self.tokens_by_status = {}
         self.active_trainees = []
         self.settings = {}
 
         self.dirty_bits = {
             "token_stats": True,
-            "token_available": True,
+            "tokens_by_status": True,
             "active_trainees": True,
             "settings": True
         }
@@ -337,8 +340,8 @@ class AppStateManager(QObject):
         if self.dirty_bits.get(key, False):
             if key == "token_stats":
                 self.__fetch_token_stats()
-            elif key == "token_available":
-                self.__fetch_token_available()
+            elif key == "tokens_by_status":
+                self.__fetch_tokens_by_status()
             elif key == "active_trainees":
                 self.__fetch_active_trainees()
             elif key == "settings":
@@ -346,8 +349,8 @@ class AppStateManager(QObject):
         else:
             if key == "token_stats":
                 self.token_stats_updated.emit(self.token_stats)
-            elif key == "token_available":
-                self.token_available_updated.emit(self.token_available)
+            elif key == "tokens_by_status":
+                self.tokens_by_status_updated.emit(self.tokens_by_status)
             elif key == "active_trainees":
                 self.active_trainees_updated.emit(self.active_trainees)
             elif key == "settings":
@@ -367,17 +370,18 @@ class AppStateManager(QObject):
 
         worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
 
-    def __fetch_token_available(self):
+    def __fetch_tokens_by_status(self):
         from core.client_network import ClientNetworkThread
-        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-available-token-list"], GET)
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-status-wise-token-list"], GET)
         self.workers.append(worker)
 
         def on_success(action, data):
             print(f"Fetched by State Manager: {action}")
-            self.token_available = data.get("token_numbers")
-            self.dirty_bits["token_available"] = False
+            self.tokens_by_status = data
+            self.tokens_by_status["tokens_available"] = sorted(data.get("tokens_available"))
+            self.dirty_bits["tokens_by_status"] = False
             self.workers.remove(worker)
-            self.token_available_updated.emit(self.token_available)
+            self.tokens_by_status_updated.emit(self.tokens_by_status)
 
         worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
 
@@ -388,7 +392,7 @@ class AppStateManager(QObject):
 
         def on_success(action, data):
             print(f"Fetched by State Manager: {action}")
-            self.active_trainees = data.get("trainees")
+            self.active_trainees = sorted(data.get("trainees"), key=lambda item: item[0])
             self.dirty_bits["active_trainees"] = False
             self.workers.remove(worker)
             self.active_trainees_updated.emit(self.active_trainees)

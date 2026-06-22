@@ -135,6 +135,27 @@ SUBMIT_BUTTON_STYLESHEET = """
     }
 """
 
+RESET_BUTTON_STYLESHEET = """
+    QPushButton {
+        margin: 20px 0px;
+        padding: 8px;
+        border: 4px solid rgb(171, 172, 152);
+        border-radius: 20px;
+        background-color: rgb(171, 172, 152);
+        color: white;
+        font-family: "Source Sans", sans-serif;
+        font-size: 18px;
+    }
+    QPushButton:hover {
+        background-color: rgb(191, 192, 172);
+        border: 4px solid rgb(191, 192, 172);
+    }
+    QPushButton:pressed {
+        background-color: rgb(171, 172, 152);
+        border: 4px solid rgb(171, 172, 152);
+    }
+"""
+
 ADD_BUTTON_STYLESHEET = """
     QPushButton {
         margin: 0px 20px;

@@ -134,7 +134,7 @@ class _GenerationFrame(QWidget):
 
         # invalidate those keys that are affected due to this POST request (generate tokens, here)
         self.state_manager.invalidate_cache("token_stats")
-        self.state_manager.invalidate_cache("token_available")
+        self.state_manager.invalidate_cache("tokens_by_status")
 
         # ensure fresh data for those keys that are needed to update UI and are also invalidated by POST (above)
         self.state_manager.ensure_fresh_data("token_stats")
@@ -156,7 +156,7 @@ class _AssignmentFrame(QWidget):
         self.loading_overlay = LoadingOverlay(self, "Assigning the token...")
 
         self.state_manager = parent._state_manager
-        self.state_manager.token_available_updated.connect(self.load_token_available)
+        self.state_manager.tokens_by_status_updated.connect(self.load_tokens_by_status)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -231,15 +231,15 @@ class _AssignmentFrame(QWidget):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
-        self.state_manager.ensure_fresh_data("token_available")
+        self.state_manager.ensure_fresh_data("tokens_by_status")
 
-    def load_token_available(self, data):
-        token_numbers = data
+    def load_tokens_by_status(self, data):
+        tokens_available = data.get("tokens_available")
         self.token_inp.clear()
 
-        if token_numbers:
+        if tokens_available:
             self.token_inp.addItem("- Select -", "select")
-            for token_number in token_numbers:
+            for token_number in tokens_available:
                 self.token_inp.addItem(f"Token ID ({token_number})", token_number)
             self.token_inp.setEnabled(True)
         else:
@@ -283,9 +283,9 @@ class _AssignmentFrame(QWidget):
         self.loading_overlay.hide()
 
         self.state_manager.invalidate_cache("token_stats")
-        self.state_manager.invalidate_cache("token_available")
+        self.state_manager.invalidate_cache("tokens_by_status")
         self.state_manager.invalidate_cache("active_trainees")
-        self.state_manager.ensure_fresh_data("token_available")
+        self.state_manager.ensure_fresh_data("tokens_by_status")
 
         token_number = data.get("token_number")
         trainee_name = data.get("trainee_name")
@@ -732,6 +732,7 @@ class _SpecialConfigFrame(QWidget):
 
         self.state_manager.ensure_fresh_data("settings") # for resetting all time slots as per settings
 
+        self.date_inp.clear()
         self.suspend_inp.setChecked(False)
         self.trainee_rows.clear()
         self.rebuild_grid()
@@ -861,10 +862,226 @@ class _SettingsFrame(QWidget):
 
         QMessageBox.information(None, "Success", data.get("message"))
 
+class _DestroyFrame(QWidget):
+    def __init__(self, parent: AdminWindow) -> None:
+        super().__init__()
+        self.__parent = parent
+        self.worker = None
+        self.loading_overlay_destroy = LoadingOverlay(self, "Destroying the token...")
+        self.loading_overlay_check = LoadingOverlay(self, "Checking Token ID status...")
+        self.tokens_available = []
+        self.tokens_assigned = []
+
+        self.state_manager = parent._state_manager
+        self.state_manager.token_stats_updated.connect(self.load_token_stats)
+        self.state_manager.tokens_by_status_updated.connect(self.load_tokens_by_status)
+
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
+        self.__parent._window_frame.setStyleSheet(GENERATE_PANEL_STYLESHEET)
+
+        title = QLabel("Destroy Wasted QR Tokens From Records")
+        title.setObjectName("heading")
+        input_frame = QFrame()
+        input_frame.setStyleSheet(GENERATE_PANEL_SUBFRAME_STYLESHEET)
+        input_layout = QVBoxLayout(input_frame)
+
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet("font-size: 14px; margin: 0px; padding: 0px;")
+
+        input_sub_frame = QFrame()
+        input_sub_frame.setStyleSheet(GENERATE_PANEL_INPUT_STYLESHEET)
+        input_sub_layout = QGridLayout(input_sub_frame)
+        input_sub_layout.setVerticalSpacing(30)
+        input_sub_layout.setColumnMinimumWidth(1, 50)
+
+        token_label = QLabel("Enter Token ID to destroy:")
+        self.token_inp = QLineEdit()
+        self.replace_label = QLabel("Enter Available Token ID to replace:")
+        self.replace_inp = QLineEdit()
+
+        self.replace_label.hide()
+        self.replace_inp.hide()
+
+        self.token_inp.setValidator(QIntValidator(1, 100000))
+        self.token_inp.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.token_inp.setMaximumWidth(150)
+        self.replace_inp.setValidator(QIntValidator(1, 100000))
+        self.replace_inp.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.replace_inp.setMaximumWidth(150)
+
+        input_sub_layout.addWidget(token_label, 0, 0)
+        input_sub_layout.addWidget(self.token_inp, 0, 2)
+        input_sub_layout.addWidget(self.replace_label, 1, 0)
+        input_sub_layout.addWidget(self.replace_inp, 1, 2)
+
+        button_layout = QHBoxLayout()
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.perform_reset)
+        self.reset_btn.setFixedWidth(200)
+        self.reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        self.reset_btn.hide()
+
+        self.multi_btn = QPushButton("Check Status")
+        self.multi_btn.clicked.connect(self.handle_click)
+        self.multi_btn.setFixedWidth(200)
+        self.multi_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+
+        button_layout.addWidget(self.reset_btn)
+        button_layout.addWidget(self.multi_btn)
+
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
+
+        info_frame = QFrame()
+        info_frame.setStyleSheet(INFO_FRAME_STYLESHEET)
+        info_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        info_layout = QVBoxLayout(info_frame)
+        sub_title = QLabel("<b>---------------------- Existing Token Info ----------------------</b>")
+        sub_title.setObjectName("heading")
+        self.info_sub_layout = QGridLayout()
+        self.info_loader = QLabel("Loading...")
+
+        self.info_sub_layout.addWidget(self.info_loader, 0, 0)
+        info_layout.addWidget(sub_title)
+        info_layout.addLayout(self.info_sub_layout)
+
+        self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(input_frame, stretch=4, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addStretch(stretch=1)
+        self.main_layout.addWidget(info_frame, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.loading_overlay_destroy.setGeometry(self.rect())
+        self.loading_overlay_check.setGeometry(self.rect())
+    
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        self.state_manager.ensure_fresh_data("token_stats")
+    
+    def destroy_layout_children(self, layout: Union[QHBoxLayout, QVBoxLayout, QGridLayout]):
+        while layout.count()>0:
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+                continue
+            child_layout = item.layout()
+            self.destroy_layout_children(child_layout)
+            child_layout.deleteLater()
+    
+    def load_token_stats(self, data):
+        total = data.get("total")
+        available = data.get("available")
+        assigned = data.get("assigned")
+        max_token = data.get("max_number")
+    
+        info_total = QLabel(f"Total Tokens: <b>{total}</b>")
+        info_largest = QLabel(f"Largest Token Number: <b>{max_token if max_token>0 else None}</b>")
+        info_available = QLabel(f"Available Tokens: <b>{available}</b>")
+        info_assigned = QLabel(f"Assigned Tokens: <b>{assigned}</b>")
+    
+        self.destroy_layout_children(self.info_sub_layout)
+        self.info_sub_layout.addWidget(info_total, 0, 0)
+        self.info_sub_layout.addWidget(info_largest, 0, 2)
+        self.info_sub_layout.addWidget(info_available, 1, 0)
+        self.info_sub_layout.addWidget(info_assigned, 1, 2)
+        self.info_sub_layout.setColumnStretch(0, 0)
+        self.info_sub_layout.setColumnStretch(1, 1)
+        self.info_sub_layout.setColumnStretch(2, 0)
+
+    def load_tokens_by_status(self, data):
+        """Evaluate Token Status here"""
+        self.loading_overlay_check.hide()
+
+        if self.multi_btn.text() != "Destroy":
+            return
+
+        self.token_inp.setEnabled(False)
+        tokens_available = data.get("tokens_available")
+        tokens_assigned = data.get("tokens_assigned")
+        token = self.token_inp.text()
+
+        if int(token) in tokens_available:
+            self.status_label.setText("Hooray! You can delete this token ID (not assigned to anybody)")
+            self.status_label.setStyleSheet(self.status_label.styleSheet() + " color: green;")
+            self.status_label.show()
+        elif int(token) in tokens_assigned:
+            self.replace_label.show()
+            self.replace_inp.show()
+            self.status_label.setText("Warning! You need to replace the token ID (assigned already)")
+            self.status_label.setStyleSheet(self.status_label.styleSheet() + " color: red;")
+            self.status_label.show()
+        else:
+            QMessageBox.information(None, "Bad Input", "This Token ID doesn't exist!")
+            self.perform_reset()
+
+    def perform_reset(self):
+        self.status_label.hide()
+        self.token_inp.setEnabled(True)
+        self.token_inp.clear()
+        self.replace_inp.clear()
+        self.multi_btn.setText("Check Status")
+        self.reset_btn.hide()
+        self.replace_label.hide()
+        self.replace_inp.hide()
+
+    def handle_click(self) -> None:
+        token = self.token_inp.text()
+        if (not token):
+            QMessageBox.warning(None, "Warning", "Please specify the token ID to destroy")
+            return
+        
+        btn_text = self.multi_btn.text()
+        if btn_text == "Check Status":
+            self.reset_btn.show()
+            self.multi_btn.setText("Destroy")
+
+            self.loading_overlay_check.show()
+            self.state_manager.ensure_fresh_data("tokens_by_status")
+            
+        elif btn_text == "Destroy":
+            replace_token = self.replace_inp.text()
+            if self.replace_inp.isVisible():
+                if not replace_token:
+                    QMessageBox.warning(None, "Input Required", "Please specify a replacement Token ID first.")
+                    return
+                replacement = int(replace_token)
+                if replacement not in self.state_manager.tokens_by_status.get("tokens_available"):
+                    QMessageBox.warning(None, "Bad Input", "Replacement Token ID is not available!")
+                    self.replace_inp.clear()
+                    return
+            else:
+                replacement = None
+
+            self.loading_overlay_destroy.show()
+            self.worker = ClientNetworkThread(
+                self, API_ENDPOINTS["destroy-wasted-tokens-and-replace-if-assigned"], POST,
+                token_number=int(token), replaced_token_number=replacement
+            )
+            self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+    
+    def on_api_success(self, action: str, data: Dict[str, Any]):
+        print(f"Success caught for action: {action}")
+        self.loading_overlay_destroy.hide()
+        self.perform_reset()
+
+        self.state_manager.invalidate_cache("token_stats")
+        self.state_manager.invalidate_cache("tokens_by_status")
+        self.state_manager.invalidate_cache("active_trainees")
+        self.state_manager.ensure_fresh_data("token_stats")
+        
+        QMessageBox.information(None, "Success", data.get("message"))
+
 class AdminWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.__WINDOWS = (_GenerationFrame, _AssignmentFrame, _CourseIntervalUpdateFrame, _SpecialConfigFrame, _SettingsFrame)
+        self.__WINDOWS = (
+            _GenerationFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
+            _SpecialConfigFrame, _SettingsFrame, _DestroyFrame
+        )
         self.__current_window = None
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
         self._state_manager = AppStateManager()
@@ -900,7 +1117,11 @@ class AdminWindow(QMainWindow):
         course_tab_switch_btn = QPushButton("Edit Course Interval")
         special_tab_switch_btn = QPushButton("Set Special Configurations")
         settings_tab_switch_btn = QPushButton("Settings")
-        self.__window_switch_buttons = (generate_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn, special_tab_switch_btn, settings_tab_switch_btn)
+        destroy_tab_switch_btn = QPushButton("Destroy Wasted QR Tokens")
+        self.__window_switch_buttons = (
+            generate_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
+            special_tab_switch_btn, settings_tab_switch_btn, destroy_tab_switch_btn
+        )
 
         for i, btn in enumerate(self.__window_switch_buttons):
             btn.clicked.connect(lambda checked, idx=i: self.__switch_window(idx))
@@ -925,7 +1146,7 @@ class AdminWindow(QMainWindow):
         outer_layout.addWidget(top_panel_frame, 1)
         outer_layout.addLayout(main_layout, 9)
 
-        self.__switch_window(4)
+        self.__switch_window(0)
 
     def __switch_window(self, window_sl_no: int) -> None:
         if (self.__current_window != window_sl_no):
