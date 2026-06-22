@@ -334,17 +334,24 @@ class AppStateManager(QObject):
     
     def ensure_fresh_data(self, key: str):
         """Called by Panel Views. If clean simple switch, if dirty spawn GET request thread"""
-        if not self.dirty_bits.get(key, False):
-            return
-        
-        if key == "token_stats":
-            self.__fetch_token_stats()
-        elif key == "token_available":
-            self.__fetch_token_available()
-        elif key == "active_trainees":
-            self.__fetch_active_trainees()
-        elif key == "settings":
-            self.__fetch_settings()
+        if self.dirty_bits.get(key, False):
+            if key == "token_stats":
+                self.__fetch_token_stats()
+            elif key == "token_available":
+                self.__fetch_token_available()
+            elif key == "active_trainees":
+                self.__fetch_active_trainees()
+            elif key == "settings":
+                self.__fetch_settings()
+        else:
+            if key == "token_stats":
+                self.token_stats_updated.emit(self.token_stats)
+            elif key == "token_available":
+                self.token_available_updated.emit(self.token_available)
+            elif key == "active_trainees":
+                self.active_trainees_updated.emit(self.active_trainees)
+            elif key == "settings":
+                self.settings_updated.emit(self.settings)
         
     def __fetch_token_stats(self):
         from core.client_network import ClientNetworkThread

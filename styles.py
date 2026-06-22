@@ -77,7 +77,7 @@ ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET = """
         font-size: 20px;
         font-weight: 500;
     }
-    ._SingleLineEdit, .QDateEdit, .QComboBox {
+    .SingleLineEdit, .QDateEdit, .QComboBox {
         font-size: 16px;
         background-color: rgb(255, 248, 236);
         padding: 5px 10px;
