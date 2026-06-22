@@ -6,12 +6,11 @@ import time
 import secrets
 import requests
 from core.password_hasher import PasswordHasher
-from core.utils import UtilityFunctions, API_ENDPOINTS
+from core.utils import API_ENDPOINTS
 
 class ClientNetworkThread(QThread):
     operation_success = pyqtSignal(str, dict) # action name, res_json
     operation_failed = pyqtSignal(str, str) # action name, error_msg
-    __utilities = UtilityFunctions()
 
     def __init__(self, parent: QObject, action: str, request_type: str, **kwargs) -> None:
         super().__init__(parent)

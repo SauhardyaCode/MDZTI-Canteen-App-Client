@@ -14,19 +14,18 @@ __all__ = ["AdminWindow"]
 
 _utilities = UtilityFunctions()
 
-_token_stats = {}
-_token_available = []
-_active_trainees = []
-_settings = []
-_dirty_bits = {"token_stats": False, "token_available": False, "active_trainees": False, "settings": False}
+"""State Manager App Sync information is provided inside the _GenerationFrame class (for reference in future)"""
 
 class _GenerationFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
         self.__parent = parent
-        self.gen_worker = None
-        self.fetch_worker = None
+        self.worker = None
         self.loading_overlay = LoadingOverlay(self, "Generating the tokens...")
+
+        # connect to those update events that are needed to keep UI up to date
+        self.state_manager = parent._state_manager
+        self.state_manager.token_stats_updated.connect(self.load_token_stats)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -69,7 +68,6 @@ class _GenerationFrame(QWidget):
         sub_title.setObjectName("heading")
         self.info_sub_layout = QGridLayout()
         self.info_loader = QLabel("Loading...")
-        self.fetch_token_info()
 
         self.info_sub_layout.addWidget(self.info_loader, 0, 0)
         info_layout.addWidget(sub_title)
@@ -85,21 +83,30 @@ class _GenerationFrame(QWidget):
         self.loading_overlay.setGeometry(self.rect())
     
     def showEvent(self, event: QShowEvent):
-        self.fetch_token_info()
         super().showEvent(event)
+
+        # ensure fresh data for those keys that are needed to update UI
+        self.state_manager.ensure_fresh_data("token_stats")
     
-    def generate_new_token(self) -> None:
-        if (not self.input_field.text()):
-            QMessageBox.warning(None, "Warning", "Please enter the number of tokens to be generated")
-            return
-        self.generate_btn.setDisabled(True)
-        self.loading_overlay.show()
-        self.gen_worker = ClientNetworkThread(self, API_ENDPOINTS["generate-new-physical-qr-token"], POST, total_tokens=int(self.input_field.text()))
-        self.gen_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+    def load_token_stats(self, data):
+        total = data.get("total")
+        available = data.get("available")
+        assigned = data.get("assigned")
+        max_token = data.get("max_number")
     
-    def fetch_token_info(self) -> None:
-        self.fetch_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-physical-token-stats"], GET)
-        self.fetch_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        info_total = QLabel(f"Total Tokens: <b>{total}</b>")
+        info_largest = QLabel(f"Largest Token Number: <b>{max_token if max_token>0 else None}</b>")
+        info_available = QLabel(f"Available Tokens: <b>{available}</b>")
+        info_assigned = QLabel(f"Assigned Tokens: <b>{assigned}</b>")
+    
+        self.destroy_layout_children(self.info_sub_layout)
+        self.info_sub_layout.addWidget(info_total, 0, 0)
+        self.info_sub_layout.addWidget(info_largest, 0, 2)
+        self.info_sub_layout.addWidget(info_available, 1, 0)
+        self.info_sub_layout.addWidget(info_assigned, 1, 2)
+        self.info_sub_layout.setColumnStretch(0, 0)
+        self.info_sub_layout.setColumnStretch(1, 1)
+        self.info_sub_layout.setColumnStretch(2, 0)
 
     def destroy_layout_children(self, layout: Union[QHBoxLayout, QVBoxLayout, QGridLayout]):
         while layout.count()>0:
@@ -111,50 +118,45 @@ class _GenerationFrame(QWidget):
             child_layout = item.layout()
             self.destroy_layout_children(child_layout)
             child_layout.deleteLater()
+
+    def generate_new_token(self) -> None:
+        if (not self.input_field.text()):
+            QMessageBox.warning(None, "Warning", "Please enter the number of tokens to be generated")
+            return
+        self.generate_btn.setDisabled(True)
+        self.loading_overlay.show()
+        self.worker = ClientNetworkThread(self, API_ENDPOINTS["generate-new-physical-qr-token"], POST, total_tokens=int(self.input_field.text()))
+        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
     
     def on_api_success(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
 
-        if action == API_ENDPOINTS["generate-new-physical-qr-token"]:
-            self.loading_overlay.hide()
-            self.fetch_token_info()
-            total_inserted = data.get("inserted_count")
-            tokens = data.get("tokens")
+        # invalidate those keys that are affected due to this POST request (generate tokens, here)
+        self.state_manager.invalidate_cache("token_stats")
+        self.state_manager.invalidate_cache("token_available")
 
-            with open("logs.txt", "w") as f:
-                json.dump(tokens, f, indent=4)
-            
-            self.generate_btn.setDisabled(False)
-            QMessageBox.information(None, "Success", f"Successfully generated {total_inserted} new tokens!")
+        # ensure fresh data for those keys that are needed to update UI and are also invalidated by POST (above)
+        self.state_manager.ensure_fresh_data("token_stats")
         
-        elif action == API_ENDPOINTS["fetch-physical-token-stats"]:
-            total = data.get("total")
-            available = data.get("available")
-            assigned = data.get("assigned")
-            max_token = data.get("max_number")
+        total_inserted = data.get("inserted_count")
+        tokens = data.get("tokens")
 
-            info_total = QLabel(f"Total Tokens: <b>{total}</b>")
-            info_largest = QLabel(f"Largest Token Number: <b>{max_token if max_token>0 else None}</b>")
-            info_available = QLabel(f"Available Tokens: <b>{available}</b>")
-            info_assigned = QLabel(f"Assigned Tokens: <b>{assigned}</b>")
-
-            self.destroy_layout_children(self.info_sub_layout)
-            self.info_sub_layout.addWidget(info_total, 0, 0)
-            self.info_sub_layout.addWidget(info_largest, 0, 2)
-            self.info_sub_layout.addWidget(info_available, 1, 0)
-            self.info_sub_layout.addWidget(info_assigned, 1, 2)
-
-            self.info_sub_layout.setColumnStretch(0, 0)
-            self.info_sub_layout.setColumnStretch(1, 1)
-            self.info_sub_layout.setColumnStretch(2, 0)
+        with open("logs.txt", "w") as f:
+            json.dump(tokens, f, indent=4)
+        
+        self.generate_btn.setDisabled(False)
+        QMessageBox.information(None, "Success", f"Successfully generated {total_inserted} new tokens!")
 
 class _AssignmentFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
         self.__parent = parent
-        self.assign_worker = None
-        self.fetch_worker = None
+        self.worker = None
         self.loading_overlay = LoadingOverlay(self, "Assigning the token...")
+
+        self.state_manager = parent._state_manager
+        self.state_manager.token_available_updated.connect(self.load_token_available)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -186,7 +188,6 @@ class _AssignmentFrame(QWidget):
         self.token_inp = QComboBox()
         self.token_inp.addItem("Loading Token IDs...", "loading")
         self.token_inp.setEnabled(False)
-        self.fetch_available_tokens()
         self.pref_inp = QComboBox()
         self.pref_inp.addItem("- Select -", "select")
         self.pref_inp.addItems(("VEG", "NON-VEG"))
@@ -229,8 +230,22 @@ class _AssignmentFrame(QWidget):
         self.loading_overlay.setGeometry(self.rect())
 
     def showEvent(self, event: QShowEvent):
-        self.fetch_available_tokens()
         super().showEvent(event)
+        self.state_manager.ensure_fresh_data("token_available")
+
+    def load_token_available(self, data):
+        token_numbers = data
+        self.token_inp.clear()
+
+        if token_numbers:
+            self.token_inp.addItem("- Select -", "select")
+            for token_number in token_numbers:
+                self.token_inp.addItem(f"Token ID ({token_number})", token_number)
+            self.token_inp.setEnabled(True)
+        else:
+            self.token_inp.addItem("No Available Tokens!", "no data")
+        
+        self.assign_btn.setDisabled(False)
     
     def assign_token_to_trainee(self) -> None:
         name = self.name_inp.toPlainText()
@@ -250,12 +265,12 @@ class _AssignmentFrame(QWidget):
         if all((name, desg, start, end, token!="select", self.pref_inp.currentData()!="select")):
             if (start < end):
                 self.loading_overlay.show()
-                self.assign_worker = ClientNetworkThread(
+                self.worker = ClientNetworkThread(
                     self, API_ENDPOINTS["assign-existing-token-to-trainee"], POST,
                     token_number=int(token), trainee_name=name, trainee_desg=desg,
                     course_start=start, course_end=end, meal_preference=pref
                 )
-                self.assign_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+                self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
             else:
                 QMessageBox.warning(None, "Warning", "Please select a valid date (Course End Date)!")
                 return
@@ -263,44 +278,31 @@ class _AssignmentFrame(QWidget):
             QMessageBox.warning(None, "Incomplete Form", "Please fill out all the fields first!")
             return
     
-    def fetch_available_tokens(self):
-        self.fetch_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-available-token-list"], GET)
-        self.fetch_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
-    
     def on_api_success(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
 
-        if action == API_ENDPOINTS["fetch-available-token-list"]:
-            token_numbers = data.get("token_numbers")
-            self.token_inp.clear()
+        self.state_manager.invalidate_cache("token_stats")
+        self.state_manager.invalidate_cache("token_available")
+        self.state_manager.invalidate_cache("active_trainees")
+        self.state_manager.ensure_fresh_data("token_available")
 
-            if token_numbers:
-                self.token_inp.addItem("- Select -", "select")
-                for token_number in token_numbers:
-                    self.token_inp.addItem(f"Token ID ({token_number})", token_number)
-                self.token_inp.setEnabled(True)
-            else:
-                self.token_inp.addItem("No Available Tokens!", "no data")
-            
-            self.assign_btn.setDisabled(False)
-
-        elif action == API_ENDPOINTS["assign-existing-token-to-trainee"]:
-            self.loading_overlay.hide()
-            self.fetch_available_tokens()
-            token_number = data.get("token_number")
-            trainee_name = data.get("trainee_name")
-            self.name_inp.clear()
-            self.desg_inp.clear()
-            QMessageBox.information(None, "Success", f"Successfully assigned Token ID ({token_number}) to {trainee_name}!")
+        token_number = data.get("token_number")
+        trainee_name = data.get("trainee_name")
+        self.name_inp.clear()
+        self.desg_inp.clear()
+        QMessageBox.information(None, "Success", f"Successfully assigned Token ID ({token_number}) to {trainee_name}!")
 
 class _CourseIntervalUpdateFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
         self.__parent = parent
-        self.course_worker = None
-        self.fetch_worker = None
+        self.worker = None
         self.loading_overlay = LoadingOverlay(self, "Updating Course Interval...")
         self.trainee_rows = []
+
+        self.state_manager = parent._state_manager
+        self.state_manager.active_trainees_updated.connect(self.load_active_trainees)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -332,7 +334,6 @@ class _CourseIntervalUpdateFrame(QWidget):
 
         self.trainee_inp.addItem("Fetching Trainees...")
         self.trainee_inp.setEnabled(False)
-        self.fetch_trainees()
 
         self.add_btn.setFixedWidth(100)
         self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
@@ -380,12 +381,20 @@ class _CourseIntervalUpdateFrame(QWidget):
         self.loading_overlay.setGeometry(self.rect())
 
     def showEvent(self, event: QShowEvent):
-        self.fetch_trainees()
         super().showEvent(event)
+        self.state_manager.ensure_fresh_data("active_trainees")
     
-    def fetch_trainees(self):
-        self.fetch_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-active-trainee-list"], GET)
-        self.fetch_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+    def load_active_trainees(self, data):
+        trainees = data
+        self.trainee_inp.clear()
+
+        if trainees:
+            self.trainee_inp.addItem("- Select -", "select")
+            for token, name, desg in trainees:
+                self.trainee_inp.addItem(f"{name} (ID-{token})", (token, name, desg))
+            self.trainee_inp.setEnabled(True)
+        else:
+            self.trainee_inp.addItem("No Trainees Found!", "no data")
     
     def add_trainee(self):
         trainee_info = self.trainee_inp.currentData()
@@ -455,42 +464,33 @@ class _CourseIntervalUpdateFrame(QWidget):
         token_number_arr = [data["id"] for data in self.trainee_rows]
         new_end_date = self.date_inp.date().toString("yyyy-MM-dd")
         self.loading_overlay.show()
-        self.course_worker = ClientNetworkThread(
+        self.worker = ClientNetworkThread(
             self, API_ENDPOINTS["change-course-interval-of-trainees"], POST,
             token_number_arr=token_number_arr, new_end_date=new_end_date
         )
-        self.course_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
 
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
 
-        if action == API_ENDPOINTS["fetch-active-trainee-list"]:
-            trainees = data.get("trainees")
-            self.trainee_inp.clear()
+        self.state_manager.ensure_fresh_data("active_trainees")
 
-            if trainees:
-                self.trainee_inp.addItem("- Select -", "select")
-                for token, name, desg in trainees:
-                    self.trainee_inp.addItem(f"{name} (ID-{token})", (token, name, desg))
-                self.trainee_inp.setEnabled(True)
-            else:
-                self.trainee_inp.addItem("No Trainees Found!", "no data")
-        
-        elif action == API_ENDPOINTS["change-course-interval-of-trainees"]:
-            self.loading_overlay.hide()
-            self.trainee_rows.clear()
-            self.rebuild_grid()
-            QMessageBox.information(None, "Success", data.get("message"))
+        self.trainee_rows.clear()
+        self.rebuild_grid()
+        QMessageBox.information(None, "Success", data.get("message"))
 
 class _SpecialConfigFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
         self.__parent = parent
-        self.config_worker = None
-        self.fetch_trainee_worker = None
-        self.fetch_settings_worker = None
+        self.worker = None
         self.loading_overlay = LoadingOverlay(self, "Creating new configurations...")
         self.trainee_rows = []
+
+        self.state_manager = parent._state_manager
+        self.state_manager.active_trainees_updated.connect(self.load_active_trainees)
+        self.state_manager.settings_updated.connect(self.load_settings)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -533,13 +533,11 @@ class _SpecialConfigFrame(QWidget):
         self.time_inputs = (self.breakfast_start_inp, self.breakfast_end_inp, self.lunch_start_inp, self.lunch_end_inp, self.dinner_start_inp, self.dinner_end_inp)
         for inp in self.time_inputs:
             inp.setDisplayFormat("hh:mm AP")
-        self.fetch_settings()
 
         self.suspend_inp.setChecked(False)
 
         self.trainee_inp.addItem("Fetching Trainees...")
         self.trainee_inp.setEnabled(False)
-        self.fetch_trainees()
 
         self.add_btn.setFixedWidth(100)
         self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
@@ -605,17 +603,43 @@ class _SpecialConfigFrame(QWidget):
         self.loading_overlay.setGeometry(self.rect())
 
     def showEvent(self, event: QShowEvent):
-        self.fetch_trainees()
-        self.fetch_settings()
         super().showEvent(event)
+        self.state_manager.ensure_fresh_data("active_trainees")
+        self.state_manager.ensure_fresh_data("settings")
     
-    def fetch_trainees(self):
-        self.fetch_trainee_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-active-trainee-list"], GET)
-        self.fetch_trainee_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+    def load_active_trainees(self, data):
+        trainees = data
+        self.trainee_inp.clear()
+
+        if trainees:
+            self.trainee_inp.addItem("- Select -", "select")
+            for token, name, desg in trainees:
+                self.trainee_inp.addItem(f"{name} (ID-{token})", (token, name, desg))
+            self.trainee_inp.setEnabled(True)
+        else:
+            self.trainee_inp.addItem("No Trainees Found!", "no data")
     
-    def fetch_settings(self):
-        self.fetch_settings_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-current-settings"], GET)
-        self.fetch_settings_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+    def load_settings(self, data):
+        if data:
+            breakfast = data.get(ALLOWED_CONFIG_KEYS[0])
+            lunch = data.get(ALLOWED_CONFIG_KEYS[1])
+            dinner = data.get(ALLOWED_CONFIG_KEYS[2])
+
+            convert = lambda s,f: QTime.fromString(s, f)
+            form = "HH:mm:ss"
+
+            if breakfast:
+                start, end = breakfast.split('-')
+                self.breakfast_start_inp.setTime(convert(start, form))
+                self.breakfast_end_inp.setTime(convert(end, form))
+            if lunch:
+                start, end = lunch.split('-')
+                self.lunch_start_inp.setTime(convert(start, form))
+                self.lunch_end_inp.setTime(convert(end, form))
+            if dinner:
+                start, end = dinner.split('-')
+                self.dinner_start_inp.setTime(convert(start, form))
+                self.dinner_end_inp.setTime(convert(end, form))
     
     def set_special_config(self):
         if not self.trainee_rows:
@@ -637,13 +661,13 @@ class _SpecialConfigFrame(QWidget):
             return
 
         self.loading_overlay.show()
-        self.config_worker = ClientNetworkThread(
+        self.worker = ClientNetworkThread(
             self, API_ENDPOINTS["configure-special-settings-for-trainees"], POST,
             token_number_arr=token_number_arr, date_interval_arr=date_interval_arr,
             breakfast_time_slot=breakfast_time_slot, lunch_time_slot=lunch_time_slot,
             dinner_time_slot=dinner_time_slot, is_suspended=is_suspended
         )
-        self.config_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
 
     def add_trainee(self):
         trainee_info = self.trainee_inp.currentData()
@@ -704,55 +728,24 @@ class _SpecialConfigFrame(QWidget):
 
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
 
-        if action == API_ENDPOINTS["fetch-active-trainee-list"]:
-            trainees = data.get("trainees")
-            self.trainee_inp.clear()
+        self.state_manager.ensure_fresh_data("settings") # for resetting all time slots as per settings
 
-            if trainees:
-                self.trainee_inp.addItem("- Select -", "select")
-                for token, name, desg in trainees:
-                    self.trainee_inp.addItem(f"{name} (ID-{token})", (token, name, desg))
-                self.trainee_inp.setEnabled(True)
-            else:
-                self.trainee_inp.addItem("No Trainees Found!", "no data")
-      
-        elif action == API_ENDPOINTS["fetch-current-settings"]:
-            if data:
-                breakfast = data.get(ALLOWED_CONFIG_KEYS[0])
-                lunch = data.get(ALLOWED_CONFIG_KEYS[1])
-                dinner = data.get(ALLOWED_CONFIG_KEYS[2])
-
-                convert = lambda s,f: QTime.fromString(s, f)
-                form = "HH:mm:ss"
-
-                if breakfast:
-                    start, end = breakfast.split('-')
-                    self.breakfast_start_inp.setTime(convert(start, form))
-                    self.breakfast_end_inp.setTime(convert(end, form))
-                if lunch:
-                    start, end = lunch.split('-')
-                    self.lunch_start_inp.setTime(convert(start, form))
-                    self.lunch_end_inp.setTime(convert(end, form))
-                if dinner:
-                    start, end = dinner.split('-')
-                    self.dinner_start_inp.setTime(convert(start, form))
-                    self.dinner_end_inp.setTime(convert(end, form))
-        elif action == API_ENDPOINTS["configure-special-settings-for-trainees"]:
-            self.loading_overlay.hide()
-            self.fetch_settings()
-            self.suspend_inp.setChecked(False)
-            self.trainee_rows.clear()
-            self.rebuild_grid()
-            QMessageBox.information(None, "Success", data.get("message"))
+        self.suspend_inp.setChecked(False)
+        self.trainee_rows.clear()
+        self.rebuild_grid()
+        QMessageBox.information(None, "Success", data.get("message"))
 
 class _SettingsFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
         self.__parent = parent
-        self.settings_worker = None
-        self.fetch_worker = None
+        self.worker = None
         self.loading_overlay = LoadingOverlay(self, "Updating Settings...")
+
+        self.state_manager = parent._state_manager
+        self.state_manager.settings_updated.connect(self.load_settings)
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -787,7 +780,6 @@ class _SettingsFrame(QWidget):
         self.time_inputs = (self.breakfast_start_inp, self.breakfast_end_inp, self.lunch_start_inp, self.lunch_end_inp, self.dinner_start_inp, self.dinner_end_inp)
         for inp in self.time_inputs:
             inp.setDisplayFormat("hh:mm AP")
-        self.fetch_settings()
 
         input_sub_layout.addWidget(breakfast_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.breakfast_start_inp, 0, 2)
@@ -818,12 +810,33 @@ class _SettingsFrame(QWidget):
         self.loading_overlay.setGeometry(self.rect())
 
     def showEvent(self, event: QShowEvent):
-        self.fetch_settings()
         super().showEvent(event)
+        self.state_manager.ensure_fresh_data("settings")
+    
+    def load_settings(self, data):
+        if data:
+            breakfast = data.get(ALLOWED_CONFIG_KEYS[0])
+            lunch = data.get(ALLOWED_CONFIG_KEYS[1])
+            dinner = data.get(ALLOWED_CONFIG_KEYS[2])
+            only_veg = data.get(ALLOWED_CONFIG_KEYS[3])
 
-    def fetch_settings(self):
-        self.fetch_settings_worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-current-settings"], GET)
-        self.fetch_settings_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+            convert = lambda s,f: QTime.fromString(s, f)
+            form = "HH:mm:ss"
+
+            if breakfast:
+                start, end = breakfast.split('-')
+                self.breakfast_start_inp.setTime(convert(start, form))
+                self.breakfast_end_inp.setTime(convert(end, form))
+            if lunch:
+                start, end = lunch.split('-')
+                self.lunch_start_inp.setTime(convert(start, form))
+                self.lunch_end_inp.setTime(convert(end, form))
+            if dinner:
+                start, end = dinner.split('-')
+                self.dinner_start_inp.setTime(convert(start, form))
+                self.dinner_end_inp.setTime(convert(end, form))
+            if only_veg:
+                self.veg_inp.set_selected_days(only_veg.split(','))
 
     def update_settings(self):
         convert = lambda inp: inp.time().toString("HH:mm:ss")
@@ -833,43 +846,20 @@ class _SettingsFrame(QWidget):
         veg_days = ",".join(self.veg_inp.get_selected_days())
 
         self.loading_overlay.show()
-        self.settings_worker = ClientNetworkThread(
+        self.worker = ClientNetworkThread(
             self, API_ENDPOINTS["configure-settings-key-value-pairs"], POST,
             keys=ALLOWED_CONFIG_KEYS, values=(breakfast, lunch, dinner, veg_days)
         )
-        self.settings_worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
 
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
 
-        if action == API_ENDPOINTS["fetch-current-settings"]:
-            if data:
-                breakfast = data.get(ALLOWED_CONFIG_KEYS[0])
-                lunch = data.get(ALLOWED_CONFIG_KEYS[1])
-                dinner = data.get(ALLOWED_CONFIG_KEYS[2])
-                only_veg = data.get(ALLOWED_CONFIG_KEYS[3])
+        self.state_manager.invalidate_cache("settings")
+        self.state_manager.ensure_fresh_data("settings")
 
-                convert = lambda s,f: QTime.fromString(s, f)
-                form = "HH:mm:ss"
-
-                if breakfast:
-                    start, end = breakfast.split('-')
-                    self.breakfast_start_inp.setTime(convert(start, form))
-                    self.breakfast_end_inp.setTime(convert(end, form))
-                if lunch:
-                    start, end = lunch.split('-')
-                    self.lunch_start_inp.setTime(convert(start, form))
-                    self.lunch_end_inp.setTime(convert(end, form))
-                if dinner:
-                    start, end = dinner.split('-')
-                    self.dinner_start_inp.setTime(convert(start, form))
-                    self.dinner_end_inp.setTime(convert(end, form))
-                if only_veg:
-                    self.veg_inp.set_selected_days(only_veg.split(','))
-        
-        elif action == API_ENDPOINTS["configure-settings-key-value-pairs"]:
-            self.loading_overlay.hide()
-            QMessageBox.information(None, "Success", data.get("message"))
+        QMessageBox.information(None, "Success", data.get("message"))
 
 class AdminWindow(QMainWindow):
     def __init__(self) -> None:
@@ -877,6 +867,7 @@ class AdminWindow(QMainWindow):
         self.__WINDOWS = (_GenerationFrame, _AssignmentFrame, _CourseIntervalUpdateFrame, _SpecialConfigFrame, _SettingsFrame)
         self.__current_window = None
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
+        self._state_manager = AppStateManager()
 
         screen = QApplication.primaryScreen().geometry()
         screen_width = screen.width()

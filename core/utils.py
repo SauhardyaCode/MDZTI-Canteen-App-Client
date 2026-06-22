@@ -1,6 +1,6 @@
 from typing import List
 from datetime import datetime, timedelta, timezone
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -13,7 +13,12 @@ from PyQt6.QtWidgets import (
     QHBoxLayout
 )
 
-__all__ = ["POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "UtilityFunctions", "ToggleSwitch", "SingleLineEdit", "LoadingOverlay", "ClickableColorCalendar", "DaySelectionMapping", "ALLOWED_CONFIG_KEYS"]
+__all__ = [
+    "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
+    "UtilityFunctions", "AppStateManager",
+    "ToggleSwitch", "SingleLineEdit", "LoadingOverlay",
+    "ClickableColorCalendar", "DaySelectionMapping"
+]
 
 POST = "POST"
 GET = "GET"
@@ -298,3 +303,101 @@ class DaySelectionMapping(QWidget):
         """Programmatically check buttons (useful when loading from your database)"""
         for day, btn in self.buttons.items():
             btn.setChecked(day in days_list)
+
+class AppStateManager(QObject):
+    token_stats_updated = pyqtSignal(dict)
+    token_available_updated = pyqtSignal(list)
+    active_trainees_updated = pyqtSignal(list)
+    settings_updated = pyqtSignal(dict)
+
+    def __init__(self):
+        super().__init__()
+
+        self.token_stats = {}
+        self.token_available = []
+        self.active_trainees = []
+        self.settings = {}
+
+        self.dirty_bits = {
+            "token_stats": True,
+            "token_available": True,
+            "active_trainees": True,
+            "settings": True
+        }
+
+        self.workers = []
+
+    def invalidate_cache(self, key: str):
+        """Called when API POST success occurs"""
+        if key in self.dirty_bits:
+            self.dirty_bits[key] = True
+    
+    def ensure_fresh_data(self, key: str):
+        """Called by Panel Views. If clean simple switch, if dirty spawn GET request thread"""
+        if not self.dirty_bits.get(key, False):
+            return
+        
+        if key == "token_stats":
+            self.__fetch_token_stats()
+        elif key == "token_available":
+            self.__fetch_token_available()
+        elif key == "active_trainees":
+            self.__fetch_active_trainees()
+        elif key == "settings":
+            self.__fetch_settings()
+        
+    def __fetch_token_stats(self):
+        from core.client_network import ClientNetworkThread
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-physical-token-stats"], GET)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.token_stats = data
+            self.dirty_bits["token_stats"] = False
+            self.workers.remove(worker)
+            self.token_stats_updated.emit(self.token_stats)
+
+        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+
+    def __fetch_token_available(self):
+        from core.client_network import ClientNetworkThread
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-available-token-list"], GET)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.token_available = data.get("token_numbers")
+            self.dirty_bits["token_available"] = False
+            self.workers.remove(worker)
+            self.token_available_updated.emit(self.token_available)
+
+        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+
+    def __fetch_active_trainees(self):
+        from core.client_network import ClientNetworkThread
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-active-trainee-list"], GET)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.active_trainees = data.get("trainees")
+            self.dirty_bits["active_trainees"] = False
+            self.workers.remove(worker)
+            self.active_trainees_updated.emit(self.active_trainees)
+
+        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+
+    def __fetch_settings(self):
+        from core.client_network import ClientNetworkThread
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-current-settings"], GET)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.settings = data
+            self.dirty_bits["settings"] = False
+            self.workers.remove(worker)
+            self.settings_updated.emit(self.settings)
+
+        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
