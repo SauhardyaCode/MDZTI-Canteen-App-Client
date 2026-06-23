@@ -8,7 +8,7 @@ import sys
 from core.client_network import ClientNetworkThread
 from core.utils import *
 from styles import *
-import json
+import os
 
 __all__ = ["AdminWindow"]
 
@@ -19,7 +19,8 @@ class _GenerationFrame(QWidget):
         super().__init__()
         self.__parent = parent
         self.worker = None
-        self.loading_overlay = LoadingOverlay(self, "Generating the tokens...")
+        self.loading_overlay_generate = LoadingOverlay(self, "Generating the tokens...")
+        self.loading_overlay_reprint = LoadingOverlay(self, "Printing the tokens...")
 
         # connect to those update events that are needed to keep UI up to date
         self.state_manager = parent._state_manager
@@ -49,13 +50,23 @@ class _GenerationFrame(QWidget):
         input_sub_layout.addWidget(self.input_field, 0)
         input_sub_layout.addStretch()
 
+        button_layout = QVBoxLayout()
+
         self.generate_btn = QPushButton("Generate")
         self.generate_btn.clicked.connect(self.generate_new_token)
         self.generate_btn.setFixedWidth(200)
         self.generate_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
 
+        self.reprint_btn = QPushButton("Print Unassigned Tokens")
+        self.reprint_btn.clicked.connect(self.reprint_available_tokens)
+        self.reprint_btn.setFixedWidth(400)
+        self.reprint_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+
+        button_layout.addWidget(self.generate_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        button_layout.addWidget(self.reprint_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
         input_layout.addWidget(input_sub_frame)
-        input_layout.addWidget(self.generate_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        input_layout.addLayout(button_layout)
         input_layout.addStretch()
 
         info_frame = QFrame()
@@ -78,7 +89,8 @@ class _GenerationFrame(QWidget):
     
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.loading_overlay.setGeometry(self.rect())
+        self.loading_overlay_generate.setGeometry(self.rect())
+        self.loading_overlay_reprint.setGeometry(self.rect())
     
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
@@ -116,19 +128,26 @@ class _GenerationFrame(QWidget):
             child_layout = item.layout()
             self.destroy_layout_children(child_layout)
             child_layout.deleteLater()
+    
+    def reprint_available_tokens(self):
+        self.loading_overlay_reprint.show()
+        self.worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-unassigned-token-numbers-and-ids"], GET)
+        self.worker.bind_and_start(self.on_api_success_reprint, UtilityFunctions.api_failure_coroutine)
 
     def generate_new_token(self) -> None:
         if (not self.input_field.text()):
             QMessageBox.warning(None, "Warning", "Please enter the number of tokens to be generated")
             return
-        self.generate_btn.setDisabled(True)
-        self.loading_overlay.show()
-        self.worker = ClientNetworkThread(self, API_ENDPOINTS["generate-new-physical-qr-token"], POST, total_tokens=int(self.input_field.text()))
-        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
+        self.loading_overlay_generate.show()
+        self.worker = ClientNetworkThread(
+            self, API_ENDPOINTS["generate-new-physical-qr-token"], POST,
+            total_tokens=int(self.input_field.text())
+        )
+        self.worker.bind_and_start(self.on_api_success_generate, UtilityFunctions.api_failure_coroutine)
     
-    def on_api_success(self, action: str, data: Dict[str, Any]):
+    def on_api_success_generate(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
-        self.loading_overlay.hide()
+        self.input_field.clear()
 
         # invalidate those keys that are affected due to this POST request (generate tokens, here)
         self.state_manager.invalidate_cache("token_stats")
@@ -140,11 +159,43 @@ class _GenerationFrame(QWidget):
         total_inserted = data.get("inserted_count")
         tokens = data.get("tokens")
 
-        with open("logs.txt", "w") as f:
-            json.dump(tokens, f, indent=4)
-        
-        self.generate_btn.setDisabled(False)
-        QMessageBox.information(None, "Success", f"Successfully generated {total_inserted} new tokens!")
+        current_datetime = UtilityFunctions.get_current_ist_datetime().isoformat().replace('.', '-').replace(':','-')
+        default_filename = f"generated_tokens_{current_datetime}"
+        path = UtilityFunctions.get_save_path(
+            self, "Save Generated Tokens PDF",
+            default_filename, "PDF Files (*.pdf);;All Files (*)"
+        )
+
+        if path:
+            success = UtilityFunctions.generate_pdf(tokens, path)
+            self.loading_overlay_generate.hide()
+            if success:
+                QMessageBox.information(None, "Success", f"Successfully generated {total_inserted} new tokens! Saved at {path}")
+            else:
+                QMessageBox.warning(None, "Failure", "Tokens generated but could not create PDF! Use the Reprint option!")
+        else:
+            self.loading_overlay_generate.hide()
+    
+    def on_api_success_reprint(self, action: str, data: Dict[str, Any]):
+        print(f"Success caught for action: {action}")
+        tokens = data.get("tokens")
+
+        current_datetime = UtilityFunctions.get_current_ist_datetime().isoformat().replace('.', '-').replace(':','-')
+        default_filename = f"all_available_tokens_{current_datetime}.pdf"
+        path = UtilityFunctions.get_save_path(
+            self, "Save Unassigned Tokens PDF",
+            default_filename, "PDF Files (*.pdf);;All Files (*)"
+        )
+
+        if path:
+            success = UtilityFunctions.generate_pdf(tokens, path)
+            self.loading_overlay_reprint.hide()
+            if success:
+                QMessageBox.information(None, "Success", f"Successfully saved unassigned tokens PDF at {path}")
+            else:
+                QMessageBox.warning(None, "Failure", "Could not create PDF! Retry after sometime!")
+        else:
+            self.loading_overlay_reprint.hide()
 
 class _AssignmentFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
@@ -1350,14 +1401,13 @@ class _PreferenceStatsFrame(QWidget):
         else:
             self.state_manager.scan_poll_timer.stop()
 
-
 class AdminWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.__WINDOWS = (
-            _GenerationFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
-            _SpecialConfigFrame, _SettingsFrame, _DestroyFrame,
-            _PreferenceStatsFrame
+            _PreferenceStatsFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
+            _SpecialConfigFrame, _SettingsFrame, _GenerationFrame,
+            _DestroyFrame
         )
         self.__current_window = None
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
@@ -1389,17 +1439,17 @@ class AdminWindow(QMainWindow):
         left_panel_frame.setStyleSheet(PANEL_BORDER_STYLESHEET + SIDE_PANEL_STYLESHEET)
         left_panel_layout = QVBoxLayout(left_panel_frame)
         
-        generate_tab_switch_btn = QPushButton("Generate New QR Tokens")
+        preference_tab_switch_btn = QPushButton("View Meal Preferences")
         assign_tab_switch_btn = QPushButton("Assign Token To Trainee")
         course_tab_switch_btn = QPushButton("Edit Course Interval")
         special_tab_switch_btn = QPushButton("Set Special Configurations")
         settings_tab_switch_btn = QPushButton("Settings")
+        generate_tab_switch_btn = QPushButton("Generate New QR Tokens")
         destroy_tab_switch_btn = QPushButton("Destroy Wasted QR Tokens")
-        preference_tab_switch_btn = QPushButton("View Meal Preferences")
         self.__window_switch_buttons = (
-            generate_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
-            special_tab_switch_btn, settings_tab_switch_btn, destroy_tab_switch_btn,
-            preference_tab_switch_btn
+            preference_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
+            special_tab_switch_btn, settings_tab_switch_btn, generate_tab_switch_btn,
+            destroy_tab_switch_btn
         )
 
         for i, btn in enumerate(self.__window_switch_buttons):
@@ -1425,7 +1475,7 @@ class AdminWindow(QMainWindow):
         outer_layout.addWidget(top_panel_frame, 1)
         outer_layout.addLayout(main_layout, 9)
 
-        self.__switch_window(6)
+        self.__switch_window(0)
 
     def __switch_window(self, window_sl_no: int) -> None:
         if (self.__current_window != window_sl_no):

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
@@ -10,8 +10,18 @@ from PyQt6.QtWidgets import (
     QWidget,
     QCalendarWidget,
     QPushButton,
-    QHBoxLayout
+    QHBoxLayout,
+    QFileDialog
 )
+
+import os
+import io
+import qrcode
+from reportlab.lib.pagesizes import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.colors import HexColor
 
 __all__ = [
     "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
@@ -28,6 +38,7 @@ WEEKDAYS_ABBR = (day[:3] for day in WEEKDAYS)
 API_ENDPOINTS = {
     "fetch-physical-token-stats": "get-existing-token-stats",
     "fetch-status-wise-token-list": "get-tokens-by-status",
+    "fetch-unassigned-token-numbers-and-ids": "get-available-tokens-number-and-id",
     "fetch-active-trainee-list": "get-trainee-list",
     "fetch-current-settings": "get-settings",
     "fetch-total-meal-preferences-count": "get-total-meal-data",
@@ -38,7 +49,7 @@ API_ENDPOINTS = {
     "verify-qr-token-scanned-by-trainee": "verify-token",
     "change-course-interval-of-trainees": "change-course-interval",
     "configure-special-settings-for-trainees": "apply-special-config",
-    "destroy-wasted-tokens-and-replace-if-assigned": "destroy-token"
+    "destroy-wasted-tokens-and-replace-if-assigned": "destroy-token",
 }
 
 ALLOWED_CONFIG_KEYS = ("breakfast_time_slot", "lunch_time_slot", "dinner_time_slot", "only_veg_days")
@@ -55,8 +66,6 @@ class UtilityFunctions:
     def api_failure_coroutine(action: str, error_msg: str) -> None:
         print(f"Error caught on action: {action}")
         print(f"Error: {error_msg}")
-        # error_title = error_msg.split(":")[0].strip()
-        # QMessageBox.warning(None, error_title, f"{error_title}! Try reopening the panel or the app!", QMessageBox.StandardButton.Ok)
     
     @staticmethod
     def generate_date_intervals(dates_arr: List[str]) -> List[str]:
@@ -80,6 +89,106 @@ class UtilityFunctions:
 
         intervals.append(f"{start_date.toString(form)}T{prev_date.toString(form)}")
         return intervals
+    
+    @staticmethod
+    def get_save_path(parent: QWidget, caption: str, default_filename: str, file_filter: str):
+        """Opens a native file dialog drawer and returns a string path."""
+        # Setup optional configuration constraints
+
+        # Arguments: parent, window title, default path/file name, file extensions allowed
+        file_path, selected_filter = QFileDialog.getSaveFileName(parent, caption, default_filename, file_filter)
+
+        if not file_path:
+            print("User cancelled the save operation.")
+            return None
+
+        print(f"Target save path selected: {file_path}")
+        return file_path
+    
+    @staticmethod
+    def draw_background_color(canvas, doc):
+        """Fires automatically on every page before layout flowables are drawn."""
+        canvas.saveState()
+        canvas.setFillColor(HexColor("#FAF7F2")) 
+        
+        # Draw a rectangle covering the absolute boundaries of the page surface area
+        canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
+        canvas.restoreState()
+    
+    @staticmethod
+    def generate_pdf(tokens_list: List[Dict[str, Any]], path: str) -> bool:
+        try:
+            tokens_list = sorted(tokens_list, key=lambda token: token["token_number"])
+
+            # Build the template document object structure
+            ID_CARD_SIZE = (2.125 * inch, 2.750 * inch)
+            doc = SimpleDocTemplate(
+                path, 
+                pagesize=ID_CARD_SIZE,
+                rightMargin=10, leftMargin=10, topMargin=10, bottomMargin=10
+            )
+            
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                'TokenTitle', parent=styles['Heading1'], fontSize=8, leading=11, 
+                textColor='#7A1E1E', alignment=TA_CENTER, spaceAfter=4
+            )
+            detail_style = ParagraphStyle(
+                'TokenDetail', parent=styles['Normal'], fontSize=7, leading=8, 
+                textColor='#333333', alignment=TA_CENTER, spaceAfter=4
+            )
+            footer_style = ParagraphStyle(
+                'TokenFooter', parent=styles['Italic'], fontSize=4, leading=6, 
+                textColor='#777777', alignment=TA_CENTER, spaceBefore=4
+            )
+
+            story = []
+
+            for idx, token_data in enumerate(tokens_list):
+                token_num = token_data.get("token_number")
+                token_id_str = token_data.get("token_id")
+
+                # Layout spacing & title blocks
+                story.append(Spacer(1, 4))
+                story.append(Paragraph("CANTEEN CARD\n(MDZTI/APDJ)", title_style))
+                story.append(Spacer(1, 2))
+                
+                # Metadata metrics text structures
+                story.append(Paragraph(f"<b>TOKEN NUMBER:</b> {token_num}", detail_style))
+                story.append(Spacer(1, 2))
+
+                # Build the matrix canvas payload structure 
+                qr = qrcode.QRCode(version=1, box_size=4, border=4)
+                qr.add_data(token_id_str)
+                qr.make(fit=True)
+                qr_img = qr.make_image(fill_color="#102E80", back_color="white")
+                
+                # Compress image block matrix down to a memory bytes segment
+                img_buffer = io.BytesIO()
+                qr_img.save(img_buffer, format="PNG")
+                img_buffer.seek(0)
+                
+                # Add image component object to file layout queue
+                reportlab_qr = Image(img_buffer, width=80, height=80)
+                story.append(reportlab_qr)
+                
+                story.append(Paragraph("Notice: This token is property of the Hostel Management. Verification required upon entry.", footer_style))
+                
+                # Slice page boundary canvas profiles sequentially 
+                if idx < len(tokens_list) - 1:
+                    story.append(PageBreak())
+
+            doc.build(
+                story,
+                onFirstPage=UtilityFunctions.draw_background_color,
+                onLaterPages=UtilityFunctions.draw_background_color
+            )
+            print(f"PDF created successfully at: {path}")
+            return True
+
+        except Exception as e:
+            print(f"Failed to generate local client report template: {e}")
+            return False
 
 class ToggleSwitch(QAbstractButton):
     def __init__(self, parent=None):
