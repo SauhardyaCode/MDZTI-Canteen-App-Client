@@ -8,6 +8,8 @@ import requests
 from core.password_hasher import PasswordHasher
 from core.utils import API_ENDPOINTS
 
+load_dotenv()
+
 class ClientNetworkThread(QThread):
     operation_success = pyqtSignal(str, dict) # action name, res_json
     operation_failed = pyqtSignal(str, str) # action name, error_msg
@@ -20,7 +22,6 @@ class ClientNetworkThread(QThread):
         self.request_type = request_type
         self.payload = kwargs or {}
 
-        load_dotenv()
         self.__SERVER_URL = os.getenv("SERVER_URL")
         self.__API_BASE_URL = f"{self.__SERVER_URL}/api"
         self.__SECRET_KEY = os.getenv("MUTUAL_SECRET_KEY")

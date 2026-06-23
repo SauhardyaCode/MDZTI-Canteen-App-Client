@@ -200,10 +200,19 @@ class _AssignmentFrame(QWidget):
         self.start_inp.setDate(current_qdate)
         self.end_inp.setDate(current_qdate)
 
+        button_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(200)
+        reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        reset_btn.clicked.connect(self.perform_reset)
+
         self.assign_btn = QPushButton("Assign")
         self.assign_btn.setFixedWidth(200)
         self.assign_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.assign_btn.clicked.connect(self.assign_token_to_trainee)
+
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(self.assign_btn)
 
         input_sub_layout.addWidget(name_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.name_inp, 0, 1)
@@ -218,8 +227,8 @@ class _AssignmentFrame(QWidget):
         input_sub_layout.addWidget(pref_label, 2, 3, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.pref_inp, 2, 4)
 
-        input_layout.addWidget(input_sub_frame, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.assign_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
 
         self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(input_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -246,6 +255,14 @@ class _AssignmentFrame(QWidget):
             self.token_inp.addItem("No Available Tokens!", "no data")
         
         self.assign_btn.setDisabled(False)
+    
+    def perform_reset(self):
+        self.name_inp.clear()
+        self.desg_inp.clear()
+        self.start_inp.setDate(QDate.currentDate())
+        self.end_inp.setDate(QDate.currentDate())
+        self.token_inp.setCurrentIndex(0)
+        self.pref_inp.setCurrentIndex(0)
     
     def assign_token_to_trainee(self) -> None:
         name = self.name_inp.toPlainText()
@@ -281,6 +298,7 @@ class _AssignmentFrame(QWidget):
     def on_api_success(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
+        self.perform_reset()
 
         self.state_manager.invalidate_cache("token_stats")
         self.state_manager.invalidate_cache("tokens_by_status")
@@ -289,8 +307,6 @@ class _AssignmentFrame(QWidget):
 
         token_number = data.get("token_number")
         trainee_name = data.get("trainee_name")
-        self.name_inp.clear()
-        self.desg_inp.clear()
         QMessageBox.information(None, "Success", f"Successfully assigned Token ID ({token_number}) to {trainee_name}!")
 
 class _CourseIntervalUpdateFrame(QWidget):
@@ -345,10 +361,19 @@ class _CourseIntervalUpdateFrame(QWidget):
         input_sub_layout.addWidget(self.trainee_inp, 1, 2)
         input_sub_layout.addWidget(self.add_btn, 1, 3)
 
+        button_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(200)
+        reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        reset_btn.clicked.connect(self.perform_reset)
+
         self.course_btn = QPushButton("Update")
         self.course_btn.setFixedWidth(200)
         self.course_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.course_btn.clicked.connect(self.update_course_interval)
+
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(self.course_btn)
 
         self.trainee_frame = QFrame()
         trainee_layout = QVBoxLayout(self.trainee_frame)
@@ -368,9 +393,9 @@ class _CourseIntervalUpdateFrame(QWidget):
         trainee_layout.addLayout(self.trainee_list_layout)
         self.trainee_frame.hide()
 
-        input_layout.addWidget(input_sub_frame, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.course_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.trainee_frame, alignment=Qt.AlignmentFlag.AlignCenter)
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
+        input_layout.addWidget(self.trainee_frame)
 
         self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(input_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -453,6 +478,12 @@ class _CourseIntervalUpdateFrame(QWidget):
         else:
             self.trainee_frame.hide()
     
+    def perform_reset(self):
+        self.date_inp.setDate(QDate.currentDate())
+        self.trainee_inp.setCurrentIndex(0)
+        self.trainee_rows.clear()
+        self.rebuild_grid()
+
     def update_course_interval(self):
         if not self.trainee_rows:
             QMessageBox.warning(None, "Not Selected", "Please select at least one trainee to update!")
@@ -473,11 +504,10 @@ class _CourseIntervalUpdateFrame(QWidget):
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
+        self.perform_reset()
 
         self.state_manager.ensure_fresh_data("active_trainees")
-
-        self.trainee_rows.clear()
-        self.rebuild_grid()
+        
         QMessageBox.information(None, "Success", data.get("message"))
 
 class _SpecialConfigFrame(QWidget):
@@ -567,10 +597,19 @@ class _SpecialConfigFrame(QWidget):
 
         input_sub_layout.addWidget(self.add_btn, 8, 2)
 
+        button_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(200)
+        reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        reset_btn.clicked.connect(self.perform_reset)
+
         self.config_btn = QPushButton("Update")
         self.config_btn.setFixedWidth(200)
         self.config_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.config_btn.clicked.connect(self.set_special_config)
+
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(self.config_btn)
 
         self.trainee_frame = QFrame()
         trainee_layout = QVBoxLayout(self.trainee_frame)
@@ -590,9 +629,9 @@ class _SpecialConfigFrame(QWidget):
         trainee_layout.addLayout(self.trainee_list_layout)
         self.trainee_frame.hide()
 
-        input_layout.addWidget(input_sub_frame, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.config_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.trainee_frame, alignment=Qt.AlignmentFlag.AlignCenter)
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
+        input_layout.addWidget(self.trainee_frame)
 
         self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(input_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -640,7 +679,23 @@ class _SpecialConfigFrame(QWidget):
                 start, end = dinner.split('-')
                 self.dinner_start_inp.setTime(convert(start, form))
                 self.dinner_end_inp.setTime(convert(end, form))
-    
+
+    def perform_reset(self):
+        get_slots = lambda slot: list(map(lambda date: QTime.fromString(date, "HH:mm:ss"), self.state_manager.settings.get(slot).split('-')))
+        breakfast = get_slots("breakfast_time_slot")
+        lunch = get_slots("lunch_time_slot")
+        dinner = get_slots("dinner_time_slot")
+        self.breakfast_start_inp.setTime(breakfast[0])
+        self.breakfast_end_inp.setTime(breakfast[1])
+        self.lunch_start_inp.setTime(lunch[0])
+        self.lunch_end_inp.setTime(lunch[1])
+        self.dinner_start_inp.setTime(dinner[0])
+        self.dinner_end_inp.setTime(dinner[1])
+        self.date_inp.clear()
+        self.suspend_inp.setChecked(False)
+        self.trainee_rows.clear()
+        self.rebuild_grid()
+
     def set_special_config(self):
         if not self.trainee_rows:
             QMessageBox.warning(None, "Not Selected", "Please select at least one trainee to update!")
@@ -711,7 +766,11 @@ class _SpecialConfigFrame(QWidget):
 
     def rebuild_grid(self):
         while self.trainee_list_layout.count()>3:
-            self.trainee_list_layout.takeAt(3)
+            item = self.trainee_list_layout.takeAt(3)
+            if not self.trainee_rows:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
         
         self.current_row = 1
         for row in self.trainee_rows:
@@ -729,13 +788,10 @@ class _SpecialConfigFrame(QWidget):
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
+        self.perform_reset()
 
         self.state_manager.ensure_fresh_data("settings") # for resetting all time slots as per settings
 
-        self.date_inp.clear()
-        self.suspend_inp.setChecked(False)
-        self.trainee_rows.clear()
-        self.rebuild_grid()
         QMessageBox.information(None, "Success", data.get("message"))
 
 class _SettingsFrame(QWidget):
@@ -794,13 +850,22 @@ class _SettingsFrame(QWidget):
         input_sub_layout.addWidget(veg_label, 4, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.veg_inp, 4, 2, 1, 3)
 
+        button_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(200)
+        reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        reset_btn.clicked.connect(self.perform_reset)
+
         self.set_btn = QPushButton("Update")
         self.set_btn.setFixedWidth(200)
         self.set_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.set_btn.clicked.connect(self.update_settings)
 
-        input_layout.addWidget(input_sub_frame, alignment=Qt.AlignmentFlag.AlignCenter)
-        input_layout.addWidget(self.set_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(self.set_btn)
+
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
 
         self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(input_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -839,6 +904,19 @@ class _SettingsFrame(QWidget):
             if only_veg:
                 self.veg_inp.set_selected_days(only_veg.split(','))
 
+    def perform_reset(self):
+        get_slots = lambda slot: list(map(lambda date: QTime.fromString(date, "HH:mm:ss"), self.state_manager.settings.get(slot).split('-')))
+        breakfast = get_slots("breakfast_time_slot")
+        lunch = get_slots("lunch_time_slot")
+        dinner = get_slots("dinner_time_slot")
+        self.breakfast_start_inp.setTime(breakfast[0])
+        self.breakfast_end_inp.setTime(breakfast[1])
+        self.lunch_start_inp.setTime(lunch[0])
+        self.lunch_end_inp.setTime(lunch[1])
+        self.dinner_start_inp.setTime(dinner[0])
+        self.dinner_end_inp.setTime(dinner[1])
+        self.veg_inp.set_selected_days(self.state_manager.settings.get("only_veg_days").split(','))
+
     def update_settings(self):
         convert = lambda inp: inp.time().toString("HH:mm:ss")
         breakfast = f"{convert(self.breakfast_start_inp)}-{convert(self.breakfast_end_inp)}"
@@ -856,6 +934,7 @@ class _SettingsFrame(QWidget):
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
+        self.perform_reset()
 
         self.state_manager.invalidate_cache("settings")
         self.state_manager.ensure_fresh_data("settings")
