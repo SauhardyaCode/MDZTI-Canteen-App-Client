@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Union, Dict, Any
 from PyQt6.QtCore import Qt, QDate, QTime
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIntValidator, QShowEvent
+from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent
 
 import sys
 from core.client_network import ClientNetworkThread
@@ -11,8 +11,6 @@ from styles import *
 import json
 
 __all__ = ["AdminWindow"]
-
-_utilities = UtilityFunctions()
 
 """State Manager App Sync information is provided inside the _GenerationFrame class (for reference in future)"""
 
@@ -126,7 +124,7 @@ class _GenerationFrame(QWidget):
         self.generate_btn.setDisabled(True)
         self.loading_overlay.show()
         self.worker = ClientNetworkThread(self, API_ENDPOINTS["generate-new-physical-qr-token"], POST, total_tokens=int(self.input_field.text()))
-        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
     
     def on_api_success(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
@@ -287,7 +285,7 @@ class _AssignmentFrame(QWidget):
                     token_number=int(token), trainee_name=name, trainee_desg=desg,
                     course_start=start, course_end=end, meal_preference=pref
                 )
-                self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+                self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
             else:
                 QMessageBox.warning(None, "Warning", "Please select a valid date (Course End Date)!")
                 return
@@ -303,6 +301,7 @@ class _AssignmentFrame(QWidget):
         self.state_manager.invalidate_cache("token_stats")
         self.state_manager.invalidate_cache("tokens_by_status")
         self.state_manager.invalidate_cache("active_trainees")
+        self.state_manager.invalidate_cache("total_meal_count")
         self.state_manager.ensure_fresh_data("tokens_by_status")
 
         token_number = data.get("token_number")
@@ -499,13 +498,14 @@ class _CourseIntervalUpdateFrame(QWidget):
             self, API_ENDPOINTS["change-course-interval-of-trainees"], POST,
             token_number_arr=token_number_arr, new_end_date=new_end_date
         )
-        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
 
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
         self.perform_reset()
 
+        self.state_manager.invalidate_cache("total_meal_count")
         self.state_manager.ensure_fresh_data("active_trainees")
         
         QMessageBox.information(None, "Success", data.get("message"))
@@ -705,7 +705,7 @@ class _SpecialConfigFrame(QWidget):
         
         token_number_arr = [data["id"] for data in self.trainee_rows]
         dates_arr = [date.toString("yyyy-MM-dd") for date in self.date_inp.selected_dates]
-        date_interval_arr = _utilities.generate_date_intervals(dates_arr)
+        date_interval_arr = UtilityFunctions.generate_date_intervals(dates_arr)
         breakfast_time_slot = f"{get_time(self.breakfast_start_inp)}-{get_time(self.breakfast_end_inp)}"
         lunch_time_slot = f"{get_time(self.lunch_start_inp)}-{get_time(self.lunch_end_inp)}"
         dinner_time_slot = f"{get_time(self.dinner_start_inp)}-{get_time(self.dinner_end_inp)}"
@@ -722,7 +722,7 @@ class _SpecialConfigFrame(QWidget):
             breakfast_time_slot=breakfast_time_slot, lunch_time_slot=lunch_time_slot,
             dinner_time_slot=dinner_time_slot, is_suspended=is_suspended
         )
-        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
 
     def add_trainee(self):
         trainee_info = self.trainee_inp.currentData()
@@ -790,6 +790,7 @@ class _SpecialConfigFrame(QWidget):
         self.loading_overlay.hide()
         self.perform_reset()
 
+        self.state_manager.invalidate_cache("total_meal_count")
         self.state_manager.ensure_fresh_data("settings") # for resetting all time slots as per settings
 
         QMessageBox.information(None, "Success", data.get("message"))
@@ -929,14 +930,14 @@ class _SettingsFrame(QWidget):
             self, API_ENDPOINTS["configure-settings-key-value-pairs"], POST,
             keys=ALLOWED_CONFIG_KEYS, values=(breakfast, lunch, dinner, veg_days)
         )
-        self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
 
     def on_api_success(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
-        self.perform_reset()
 
         self.state_manager.invalidate_cache("settings")
+        self.state_manager.invalidate_cache("total_meal_count")
         self.state_manager.ensure_fresh_data("settings")
 
         QMessageBox.information(None, "Success", data.get("message"))
@@ -948,8 +949,6 @@ class _DestroyFrame(QWidget):
         self.worker = None
         self.loading_overlay_destroy = LoadingOverlay(self, "Destroying the token...")
         self.loading_overlay_check = LoadingOverlay(self, "Checking Token ID status...")
-        self.tokens_available = []
-        self.tokens_assigned = []
 
         self.state_manager = parent._state_manager
         self.state_manager.token_stats_updated.connect(self.load_token_stats)
@@ -1140,7 +1139,7 @@ class _DestroyFrame(QWidget):
                 self, API_ENDPOINTS["destroy-wasted-tokens-and-replace-if-assigned"], POST,
                 token_number=int(token), replaced_token_number=replacement
             )
-            self.worker.bind_and_start(self.on_api_success, _utilities.api_failure_coroutine)
+            self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
     
     def on_api_success(self, action: str, data: Dict[str, Any]):
         print(f"Success caught for action: {action}")
@@ -1150,16 +1149,215 @@ class _DestroyFrame(QWidget):
         self.state_manager.invalidate_cache("token_stats")
         self.state_manager.invalidate_cache("tokens_by_status")
         self.state_manager.invalidate_cache("active_trainees")
+        self.state_manager.invalidate_cache("total_meal_count")
         self.state_manager.ensure_fresh_data("token_stats")
         
         QMessageBox.information(None, "Success", data.get("message"))
+
+class _PreferenceStatsFrame(QWidget):
+    def __init__(self, parent: AdminWindow) -> None:
+        super().__init__()
+        self.__parent = parent
+        self.worker = None
+        self.loading_overlay = LoadingOverlay(self, "Fetching preference stats...")
+        self.last_checked_date_total = QDate.currentDate()
+        self.last_checked_date_scanned = QDate.currentDate()
+
+        self.state_manager = parent._state_manager
+        self.state_manager.total_meal_count_updated.connect(self.load_total_meal_count)
+        self.state_manager.scanned_meal_count_updated.connect(self.load_scanned_meal_count)
+
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
+        self.__parent._window_frame.setStyleSheet(GENERATE_PANEL_STYLESHEET)
+
+        title = QLabel("View Total VEG and NON-VEG Meals Count")
+        title.setObjectName("heading")
+
+        total_frame = QFrame()
+        total_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET)
+        total_layout = QVBoxLayout(total_frame)
+        total_label = QLabel("<b>Total Meal Coupons Active</b>")
+        total_label.setStyleSheet("font-size: 20px;")
+
+        total_input_frame = QFrame()
+        total_input_frame.setStyleSheet(GENERATE_PANEL_INPUT_STYLESHEET)
+        total_input_layout = QVBoxLayout(total_input_frame)
+
+        total_sub_input_layout = QGridLayout()
+        total_sub_input_layout.setVerticalSpacing(60)
+        total_sub_input_layout.setHorizontalSpacing(30)
+        total_sub_input_layout.setColumnMinimumWidth(2, 100)
+        total_sub_input_layout.setColumnMinimumWidth(3, 100)
+
+        total_veg_label = QLabel("<u><b>VEG:</b></u>")
+        total_veg_label.setStyleSheet("color: green; font-size: 18px;")
+        self.total_veg_value = QLabel("Loading...")
+        self.total_veg_value.setMinimumWidth(100)
+        self.total_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+
+        total_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
+        total_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
+        self.total_non_veg_value = QLabel("Loading...")
+        self.total_non_veg_value.setMinimumWidth(100)
+        self.total_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+
+        total_date_label = QLabel("Select Date To View Count:")
+        self.total_date_inp = QDateEdit()
+        self.total_date_inp.setCalendarPopup(True)
+        self.total_date_inp.setMaximumDate(QDate.currentDate())
+        self.total_date_inp.setDate(QDate.currentDate())
+
+        total_sub_input_layout.addWidget(total_veg_label, 0, 0)
+        total_sub_input_layout.addWidget(self.total_veg_value, 0, 1)
+        total_sub_input_layout.addWidget(total_non_veg_label, 0, 4)
+        total_sub_input_layout.addWidget(self.total_non_veg_value, 0, 5)
+        total_sub_input_layout.addWidget(total_date_label, 1, 0, 1, 3)
+        total_sub_input_layout.addWidget(self.total_date_inp, 1, 3, 1, 2)
+
+        self.total_check_btn = QPushButton("Check Count")
+        self.total_check_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.total_check_btn.clicked.connect(self.check_total_status)
+
+        total_input_layout.addLayout(total_sub_input_layout)
+        total_input_layout.addWidget(self.total_check_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        
+        total_layout.addWidget(total_label)
+        total_layout.addWidget(total_input_frame)
+
+        scanned_frame = QFrame()
+        scanned_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET)
+        scanned_layout = QVBoxLayout(scanned_frame)
+        scanned_label = QLabel("<b>Scanned Meal Coupons</b>")
+        scanned_label.setStyleSheet("font-size: 20px;")
+
+        scanned_input_frame = QFrame()
+        scanned_input_frame.setStyleSheet(GENERATE_PANEL_INPUT_STYLESHEET)
+        scanned_input_layout = QVBoxLayout(scanned_input_frame)
+
+        scanned_sub_input_layout = QGridLayout()
+        scanned_sub_input_layout.setVerticalSpacing(60)
+        scanned_sub_input_layout.setHorizontalSpacing(30)
+        scanned_sub_input_layout.setColumnMinimumWidth(2, 100)
+        scanned_sub_input_layout.setColumnMinimumWidth(3, 100)
+
+        scanned_veg_label = QLabel("<u><b>VEG:</b></u>")
+        scanned_veg_label.setStyleSheet("color: green; font-size: 18px;")
+        self.scanned_veg_value = QLabel("Loading...")
+        self.scanned_veg_value.setMinimumWidth(100)
+        self.scanned_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+
+        scanned_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
+        scanned_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
+        self.scanned_non_veg_value = QLabel("Loading...")
+        self.scanned_non_veg_value.setMinimumWidth(100)
+        self.scanned_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+
+        scanned_date_label = QLabel("Select Date To View Count:")
+        self.scanned_date_inp = QDateEdit()
+        self.scanned_date_inp.setMaximumDate(QDate.currentDate())
+        self.scanned_date_inp.setCalendarPopup(True)
+        self.scanned_date_inp.setDate(QDate.currentDate())
+
+        scanned_sub_input_layout.addWidget(scanned_veg_label, 0, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_veg_value, 0, 1)
+        scanned_sub_input_layout.addWidget(scanned_non_veg_label, 0, 4)
+        scanned_sub_input_layout.addWidget(self.scanned_non_veg_value, 0, 5)
+        scanned_sub_input_layout.addWidget(scanned_date_label, 1, 0, 1, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_date_inp, 1, 3, 1, 2)
+
+        self.scanned_check_btn = QPushButton("Check Count")
+        self.scanned_check_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.scanned_check_btn.clicked.connect(self.check_scanned_status)
+
+        scanned_input_layout.addLayout(scanned_sub_input_layout)
+        scanned_input_layout.addWidget(self.scanned_check_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        scanned_layout.addWidget(scanned_label)
+        scanned_layout.addWidget(scanned_input_frame)
+
+        self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(total_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addStretch(stretch=1)
+        self.main_layout.addWidget(scanned_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
+    
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.loading_overlay.setGeometry(self.rect())
+    
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        self.state_manager.ensure_fresh_data("total_meal_count")
+
+        if self.last_checked_date_scanned == QDate.currentDate():
+            self.state_manager.ensure_fresh_data("scanned_meal_count")
+        self.state_manager.scan_poll_timer.start()
+    
+    def hideEvent(self, event: QHideEvent):
+        super().hideEvent(event)
+        self.state_manager.scan_poll_timer.stop()
+    
+    def load_total_meal_count(self, data):
+        veg = data.get("veg")
+        non_veg = data.get("non-veg")
+
+        if self.last_checked_date_total == QDate.currentDate():
+            self.total_veg_value.setText(str(veg))
+            self.total_non_veg_value.setText(str(non_veg))
+
+    def load_scanned_meal_count(self, data):
+        veg = data.get("veg")
+        non_veg = data.get("non-veg")
+
+        if self.last_checked_date_scanned == QDate.currentDate():
+            self.scanned_veg_value.setText(str(veg))
+            self.scanned_non_veg_value.setText(str(non_veg))
+    
+    def check_total_status(self):
+        date = self.total_date_inp.date().toString("yyyy-MM-dd")
+        
+        self.loading_overlay.show()
+        self.worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-total-meal-preferences-count"], GET, target_date=date)
+        self.worker.bind_and_start(self.on_api_success_total, UtilityFunctions.api_failure_coroutine)
+
+    def check_scanned_status(self):
+        date = self.scanned_date_inp.date().toString("yyyy-MM-dd")
+        
+        self.loading_overlay.show()
+        self.worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-scanned-meal-preferences-count"], GET, target_date=date)
+        self.worker.bind_and_start(self.on_api_success_scanned, UtilityFunctions.api_failure_coroutine)
+    
+    def on_api_success_total(self, action: str, data: dict):
+        print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
+        veg = data.get("veg")
+        non_veg = data.get("non-veg")
+        self.total_veg_value.setText(str(veg))
+        self.total_non_veg_value.setText(str(non_veg))
+        self.last_checked_date_total = self.total_date_inp.date()
+
+    def on_api_success_scanned(self, action: str, data: dict):
+        print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
+        veg = data.get("veg")
+        non_veg = data.get("non-veg")
+        self.scanned_veg_value.setText(str(veg))
+        self.scanned_non_veg_value.setText(str(non_veg))
+        self.last_checked_date_scanned = self.scanned_date_inp.date()
+
+        if self.last_checked_date_scanned == QDate.currentDate():
+            self.state_manager.scan_poll_timer.start()
+        else:
+            self.state_manager.scan_poll_timer.stop()
+
 
 class AdminWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.__WINDOWS = (
             _GenerationFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
-            _SpecialConfigFrame, _SettingsFrame, _DestroyFrame
+            _SpecialConfigFrame, _SettingsFrame, _DestroyFrame,
+            _PreferenceStatsFrame
         )
         self.__current_window = None
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
@@ -1197,9 +1395,11 @@ class AdminWindow(QMainWindow):
         special_tab_switch_btn = QPushButton("Set Special Configurations")
         settings_tab_switch_btn = QPushButton("Settings")
         destroy_tab_switch_btn = QPushButton("Destroy Wasted QR Tokens")
+        preference_tab_switch_btn = QPushButton("View Meal Preferences")
         self.__window_switch_buttons = (
             generate_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
-            special_tab_switch_btn, settings_tab_switch_btn, destroy_tab_switch_btn
+            special_tab_switch_btn, settings_tab_switch_btn, destroy_tab_switch_btn,
+            preference_tab_switch_btn
         )
 
         for i, btn in enumerate(self.__window_switch_buttons):
@@ -1225,7 +1425,7 @@ class AdminWindow(QMainWindow):
         outer_layout.addWidget(top_panel_frame, 1)
         outer_layout.addLayout(main_layout, 9)
 
-        self.__switch_window(0)
+        self.__switch_window(6)
 
     def __switch_window(self, window_sl_no: int) -> None:
         if (self.__current_window != window_sl_no):

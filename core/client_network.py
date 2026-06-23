@@ -36,7 +36,7 @@ class ClientNetworkThread(QThread):
                 if self.request_type == "POST":
                     response = requests.post(endpoint, headers=headers, params=self.payload, timeout=10.0)
                 elif self.request_type == "GET":
-                    response = requests.get(endpoint, headers=headers, timeout=10.0)
+                    response = requests.get(endpoint, headers=headers, params=self.payload, timeout=10.0)
 
                 if response.status_code == 200:
                     self.operation_success.emit(self.action, response.json())

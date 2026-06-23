@@ -1,6 +1,6 @@
 from typing import List
 from datetime import datetime, timedelta, timezone
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -44,19 +44,22 @@ API_ENDPOINTS = {
 ALLOWED_CONFIG_KEYS = ("breakfast_time_slot", "lunch_time_slot", "dinner_time_slot", "only_veg_days")
 
 class UtilityFunctions:
-    def get_current_ist_datetime(self) -> datetime:
+    @staticmethod
+    def get_current_ist_datetime() -> datetime:
         aware_current_time_utc = datetime.now(timezone.utc)
         aware_current_time_ist = aware_current_time_utc + timedelta(hours=5, minutes=30)
         current_time_ist = aware_current_time_ist.replace(tzinfo=None)
         return current_time_ist
     
-    def api_failure_coroutine(self, action: str, error_msg: str) -> None:
+    @staticmethod
+    def api_failure_coroutine(action: str, error_msg: str) -> None:
         print(f"Error caught on action: {action}")
         print(f"Error: {error_msg}")
         # error_title = error_msg.split(":")[0].strip()
         # QMessageBox.warning(None, error_title, f"{error_title}! Try reopening the panel or the app!", QMessageBox.StandardButton.Ok)
     
-    def generate_date_intervals(self, dates_arr: List[str]) -> List[str]:
+    @staticmethod
+    def generate_date_intervals(dates_arr: List[str]) -> List[str]:
         if not dates_arr:
             return []
         
@@ -312,6 +315,8 @@ class AppStateManager(QObject):
     tokens_by_status_updated = pyqtSignal(dict)
     active_trainees_updated = pyqtSignal(list)
     settings_updated = pyqtSignal(dict)
+    total_meal_count_updated = pyqtSignal(dict)
+    scanned_meal_count_updated = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
@@ -320,15 +325,22 @@ class AppStateManager(QObject):
         self.tokens_by_status = {}
         self.active_trainees = []
         self.settings = {}
+        self.total_meal_count = {}
 
         self.dirty_bits = {
             "token_stats": True,
             "tokens_by_status": True,
             "active_trainees": True,
-            "settings": True
+            "settings": True,
+            "total_meal_count": True,
         }
 
         self.workers = []
+
+        self.scanned_meal_count = {}
+        self.scan_poll_timer = QTimer(self)
+        self.scan_poll_timer.setInterval(5000)
+        self.scan_poll_timer.timeout.connect(self.__fetch_scanned_meal_count)
 
     def invalidate_cache(self, key: str):
         """Called when API POST success occurs"""
@@ -337,6 +349,9 @@ class AppStateManager(QObject):
     
     def ensure_fresh_data(self, key: str):
         """Called by Panel Views. If clean simple switch, if dirty spawn GET request thread"""
+        if key == "scanned_meal_count":
+            self.__fetch_scanned_meal_count()
+
         if self.dirty_bits.get(key, False):
             if key == "token_stats":
                 self.__fetch_token_stats()
@@ -346,6 +361,8 @@ class AppStateManager(QObject):
                 self.__fetch_active_trainees()
             elif key == "settings":
                 self.__fetch_settings()
+            elif key == "total_meal_count":
+                self.__fetch_total_meal_count()
         else:
             if key == "token_stats":
                 self.token_stats_updated.emit(self.token_stats)
@@ -355,6 +372,8 @@ class AppStateManager(QObject):
                 self.active_trainees_updated.emit(self.active_trainees)
             elif key == "settings":
                 self.settings_updated.emit(self.settings)
+            elif key == "total_meal_count":
+                self.total_meal_count_updated.emit(self.total_meal_count)
         
     def __fetch_token_stats(self):
         from core.client_network import ClientNetworkThread
@@ -365,10 +384,14 @@ class AppStateManager(QObject):
             print(f"Fetched by State Manager: {action}")
             self.token_stats = data
             self.dirty_bits["token_stats"] = False
-            self.workers.remove(worker)
+            if worker in self.workers: self.workers.remove(worker)
             self.token_stats_updated.emit(self.token_stats)
+        
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
 
-        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+        worker.bind_and_start(on_success, on_failure)
 
     def __fetch_tokens_by_status(self):
         from core.client_network import ClientNetworkThread
@@ -380,10 +403,14 @@ class AppStateManager(QObject):
             self.tokens_by_status = data
             self.tokens_by_status["tokens_available"] = sorted(data.get("tokens_available"))
             self.dirty_bits["tokens_by_status"] = False
-            self.workers.remove(worker)
+            if worker in self.workers: self.workers.remove(worker)
             self.tokens_by_status_updated.emit(self.tokens_by_status)
 
-        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
+
+        worker.bind_and_start(on_success, on_failure)
 
     def __fetch_active_trainees(self):
         from core.client_network import ClientNetworkThread
@@ -394,10 +421,14 @@ class AppStateManager(QObject):
             print(f"Fetched by State Manager: {action}")
             self.active_trainees = sorted(data.get("trainees"), key=lambda item: item[0])
             self.dirty_bits["active_trainees"] = False
-            self.workers.remove(worker)
+            if worker in self.workers: self.workers.remove(worker)
             self.active_trainees_updated.emit(self.active_trainees)
 
-        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
+
+        worker.bind_and_start(on_success, on_failure)
 
     def __fetch_settings(self):
         from core.client_network import ClientNetworkThread
@@ -408,7 +439,48 @@ class AppStateManager(QObject):
             print(f"Fetched by State Manager: {action}")
             self.settings = data
             self.dirty_bits["settings"] = False
-            self.workers.remove(worker)
+            if worker in self.workers: self.workers.remove(worker)
             self.settings_updated.emit(self.settings)
 
-        worker.bind_and_start(on_success, lambda action, error: print(f"Error on {action}: {error}"))
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
+
+        worker.bind_and_start(on_success, on_failure)
+
+    def __fetch_total_meal_count(self):
+        from core.client_network import ClientNetworkThread
+        current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-total-meal-preferences-count"], GET, target_date=current_date)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.total_meal_count = data
+            self.dirty_bits["total_meal_count"] = False
+            if worker in self.workers: self.workers.remove(worker)
+            self.total_meal_count_updated.emit(self.total_meal_count)
+
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
+
+        worker.bind_and_start(on_success, on_failure)
+    
+    def __fetch_scanned_meal_count(self):
+        from core.client_network import ClientNetworkThread
+        current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-scanned-meal-preferences-count"], GET, target_date=current_date)
+        self.workers.append(worker)
+
+        def on_success(action, data):
+            print(f"Fetched by State Manager: {action}")
+            self.scanned_meal_count = data
+            if worker in self.workers: self.workers.remove(worker)
+            self.scanned_meal_count_updated.emit(self.scanned_meal_count)
+
+        def on_failure(action, error):
+            print(f"Error on {action}: {error}")
+            if worker in self.workers: self.workers.remove(worker)
+
+        worker.bind_and_start(on_success, on_failure)
