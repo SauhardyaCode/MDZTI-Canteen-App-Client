@@ -211,3 +211,122 @@ DAY_SUB_FRAME_STYLESHEET = """
         background-color: #ffffff;
     }
 """
+
+LOGS_FRAME_STYLESHEET = """
+    .QFrame, .QLabel {
+        background-color: #E6F2DD;
+    }
+"""
+
+STATUS_FRAME_STYLESHEET = """
+    .QFrame, .QLabel {
+        background-color: rgb(235, 244, 221);
+    }
+"""
+
+LOGS_SUB_FRAME_STYLESHEET = """
+    .QLabel {
+        font-size: 12px;
+        font-style: italic;
+    }
+"""
+
+STATUS_SUB_FRAME_STYLESHEET = """
+    .QFrame {
+        margin: 0px 20px;
+    }
+
+    .QLabel {
+        font-size: 16px;
+    }
+"""
+
+SMALL_HEADING_STYLESHEET = """
+    QLabel {
+        margin: 0px;
+        color: #7F2020;
+        font-size: 18px;;
+        font-weight: 600;
+    }
+"""
+
+SUCCESS_LABEL_STYLESHEET = """
+    .QLabel {
+        font-family: monospace;
+        font-size: 60px;
+        font-weight: bold;
+        letter-spacing: 5px;
+        color: #033971;
+        text-decoration: underline;
+    }
+"""
+
+FAILURE_LABEL_STYLESHEET = """
+    .QLabel {
+        font-family: monospace;
+        font-size: 60px;
+        font-weight: bold;
+        letter-spacing: 5px;
+        color: #FF0000;
+        text-decoration: underline;
+    }
+"""
+
+SUCCESS_STYLESHEET = """
+    QLabel {
+        font-size: 35px;
+    }
+"""
+
+SUCCESS_VEG_STYLESHEET = """
+    QFrame {
+        background-color: #BCD9A2;
+    }
+"""
+
+SUCCESS_NON_VEG_STYLESHEET = """
+    QFrame {
+        background-color: #FAAA8C;
+    }
+"""
+
+FAILURE_STYLESHEET = """
+    QFrame {
+        background-color: #ECCFD1;
+    }
+"""
+
+FAILURE_STATUS_LABEL_STYLESHEET = """
+    .QLabel {
+        font-family: comicsans;
+        font-size: 40px;
+        font-weight: bold;
+        color: #033971;
+    }
+"""
+
+MANUAL_ENTRY_STYLESHEET = """
+    QFrame {
+        background-color: rgb(254, 246, 238);
+    }
+
+    QLabel {
+        background-color: transparent;
+    }
+    
+    QLabel#heading {
+        color: #4D0000;
+        font-size: 30px;
+        font-weight: 700;
+        text-decoration: underline;
+    }
+"""
+
+HEADING_STYLESHEET = """
+    QLabel {
+        color: #4D0000;
+        font-size: 30px;
+        font-weight: 700;
+        text-decoration: underline;
+    }
+"""

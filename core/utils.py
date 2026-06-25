@@ -47,9 +47,11 @@ API_ENDPOINTS = {
     "generate-new-physical-qr-token": "generate-new-token",
     "assign-existing-token-to-trainee": "assign-token",
     "verify-qr-token-scanned-by-trainee": "verify-token",
+    "verify-qr-token-input-by-manager": "verify-token-manual",
     "change-course-interval-of-trainees": "change-course-interval",
     "configure-special-settings-for-trainees": "apply-special-config",
     "destroy-wasted-tokens-and-replace-if-assigned": "destroy-token",
+    "nudge-backend-to-save-to-local-cache": "sync-nudge"
 }
 
 ALLOWED_CONFIG_KEYS = ("breakfast_time_slot", "lunch_time_slot", "dinner_time_slot", "only_veg_days")
@@ -61,6 +63,16 @@ class UtilityFunctions:
         aware_current_time_ist = aware_current_time_utc + timedelta(hours=5, minutes=30)
         current_time_ist = aware_current_time_ist.replace(tzinfo=None)
         return current_time_ist
+    
+    @staticmethod
+    def is_time_in_slot(check_time: str, time_slot: str) -> bool:
+        start_time, end_time = tuple(map(lambda x: datetime.strptime(x.strip(), "%H:%M:%S").time(), time_slot.split('-')))
+        measurable_check_time = datetime.strptime(check_time.strip(), "%H:%M:%S").time()
+
+        if start_time <= end_time:
+            return (start_time <= measurable_check_time <= end_time)
+        else:
+            return (start_time <= measurable_check_time or measurable_check_time <= end_time)
     
     @staticmethod
     def api_failure_coroutine(action: str, error_msg: str) -> None:
@@ -161,7 +173,7 @@ class UtilityFunctions:
                 qr = qrcode.QRCode(version=1, box_size=4, border=4)
                 qr.add_data(token_id_str)
                 qr.make(fit=True)
-                qr_img = qr.make_image(fill_color="#102E80", back_color="white")
+                qr_img = qr.make_image(fill_color="#000000", back_color="white")
                 
                 # Compress image block matrix down to a memory bytes segment
                 img_buffer = io.BytesIO()
@@ -292,7 +304,7 @@ class LoadingOverlay(QWidget):
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.spinner = QLabel()
-        self.movie = QMovie("assets/loader3.gif")
+        self.movie = QMovie("assets/loader.gif")
         self.movie.setScaledSize(QSize(100, 100))
         self.spinner.setMovie(self.movie)
         self.movie.start()

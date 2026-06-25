@@ -8,7 +8,6 @@ import sys
 from core.client_network import ClientNetworkThread
 from core.utils import *
 from styles import *
-import os
 
 __all__ = ["AdminWindow"]
 
@@ -41,7 +40,7 @@ class _GenerationFrame(QWidget):
         input_sub_layout = QHBoxLayout(input_sub_frame)
         input_label = QLabel("Enter no. of tokens to generate: ")
         self.input_field = QLineEdit()
-        self.input_field.setValidator(QIntValidator(1, 100000))
+        self.input_field.setValidator(QIntValidator(1, 1000000))
         self.input_field.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.input_field.setMaximumWidth(150)
 

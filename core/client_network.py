@@ -13,6 +13,7 @@ load_dotenv()
 class ClientNetworkThread(QThread):
     operation_success = pyqtSignal(str, dict) # action name, res_json
     operation_failed = pyqtSignal(str, str) # action name, error_msg
+    client_offline = pyqtSignal() # let client know they are offline
 
     def __init__(self, parent: QObject, action: str, request_type: str, **kwargs) -> None:
         super().__init__(parent)
@@ -43,6 +44,9 @@ class ClientNetworkThread(QThread):
                 else:
                     error_detail = response.json().get("detail", "Central Node server rejected access constraints.")
                     self.operation_failed.emit(self.action, f"[{response.status_code}] {error_detail}")
+            except requests.exceptions.ConnectionError:
+                self.operation_failed.emit(self.action, "Connection Error: Client is offline.")
+                self.client_offline.emit()
             except requests.exceptions.Timeout:
                 self.operation_failed.emit(self.action, "Network Timeout: Central Node server is taking too long to respond.")
                 self.run()
