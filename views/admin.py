@@ -332,8 +332,16 @@ class _AssignmentFrame(QWidget):
                 self.loading_overlay.show()
                 self.worker = ClientNetworkThread(
                     self, API_ENDPOINTS["assign-existing-token-to-trainee"], POST,
-                    token_number=int(token), trainee_name=name, trainee_desg=desg,
-                    course_start=start, course_end=end, meal_preference=pref
+                    json_data = {
+                        "token_number": int(token),
+                        "trainee": {
+                            "name": name,
+                            "designation": desg,
+                            "course_start": start,
+                            "course_end": end,
+                            "meal_preference": pref
+                        }
+                    }
                 )
                 self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
             else:
@@ -976,9 +984,10 @@ class _SettingsFrame(QWidget):
         veg_days = ",".join(self.veg_inp.get_selected_days())
 
         self.loading_overlay.show()
+        payload_json = [{"key": key, "value": value} for key, value in zip(ALLOWED_CONFIG_KEYS, (breakfast, lunch, dinner, veg_days))]
         self.worker = ClientNetworkThread(
             self, API_ENDPOINTS["configure-settings-key-value-pairs"], POST,
-            keys=ALLOWED_CONFIG_KEYS, values=(breakfast, lunch, dinner, veg_days)
+            json_data = {"settings": payload_json}
         )
         self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
 
@@ -1227,18 +1236,17 @@ class _PreferenceStatsFrame(QWidget):
         total_frame = QFrame()
         total_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET)
         total_layout = QVBoxLayout(total_frame)
-        total_label = QLabel("<b>Total Meal Coupons Active</b>")
+        total_label = QLabel("<b>Total Meal Coupons Active Today</b>")
         total_label.setStyleSheet("font-size: 20px;")
 
         total_input_frame = QFrame()
         total_input_frame.setStyleSheet(GENERATE_PANEL_INPUT_STYLESHEET)
-        total_input_layout = QVBoxLayout(total_input_frame)
 
-        total_sub_input_layout = QGridLayout()
-        total_sub_input_layout.setVerticalSpacing(60)
-        total_sub_input_layout.setHorizontalSpacing(30)
-        total_sub_input_layout.setColumnMinimumWidth(2, 100)
-        total_sub_input_layout.setColumnMinimumWidth(3, 100)
+        total_input_layout = QGridLayout(total_input_frame)
+        total_input_layout.setVerticalSpacing(60)
+        total_input_layout.setHorizontalSpacing(30)
+        total_input_layout.setColumnMinimumWidth(2, 100)
+        total_input_layout.setColumnMinimumWidth(3, 100)
 
         total_veg_label = QLabel("<u><b>VEG:</b></u>")
         total_veg_label.setStyleSheet("color: green; font-size: 18px;")
@@ -1252,26 +1260,11 @@ class _PreferenceStatsFrame(QWidget):
         self.total_non_veg_value.setMinimumWidth(100)
         self.total_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
 
-        total_date_label = QLabel("Select Date To View Count:")
-        self.total_date_inp = QDateEdit()
-        self.total_date_inp.setCalendarPopup(True)
-        self.total_date_inp.setMaximumDate(QDate.currentDate())
-        self.total_date_inp.setDate(QDate.currentDate())
+        total_input_layout.addWidget(total_veg_label, 0, 0)
+        total_input_layout.addWidget(self.total_veg_value, 0, 1)
+        total_input_layout.addWidget(total_non_veg_label, 0, 4)
+        total_input_layout.addWidget(self.total_non_veg_value, 0, 5)
 
-        total_sub_input_layout.addWidget(total_veg_label, 0, 0)
-        total_sub_input_layout.addWidget(self.total_veg_value, 0, 1)
-        total_sub_input_layout.addWidget(total_non_veg_label, 0, 4)
-        total_sub_input_layout.addWidget(self.total_non_veg_value, 0, 5)
-        total_sub_input_layout.addWidget(total_date_label, 1, 0, 1, 3)
-        total_sub_input_layout.addWidget(self.total_date_inp, 1, 3, 1, 2)
-
-        self.total_check_btn = QPushButton("Check Count")
-        self.total_check_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
-        self.total_check_btn.clicked.connect(self.check_total_status)
-
-        total_input_layout.addLayout(total_sub_input_layout)
-        total_input_layout.addWidget(self.total_check_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        
         total_layout.addWidget(total_label)
         total_layout.addWidget(total_input_frame)
 
@@ -1350,10 +1343,8 @@ class _PreferenceStatsFrame(QWidget):
     def load_total_meal_count(self, data):
         veg = data.get("veg")
         non_veg = data.get("non-veg")
-
-        if self.last_checked_date_total == QDate.currentDate():
-            self.total_veg_value.setText(str(veg))
-            self.total_non_veg_value.setText(str(non_veg))
+        self.total_veg_value.setText(str(veg))
+        self.total_non_veg_value.setText(str(non_veg))
 
     def load_scanned_meal_count(self, data):
         veg = data.get("veg")
@@ -1362,13 +1353,6 @@ class _PreferenceStatsFrame(QWidget):
         if self.last_checked_date_scanned == QDate.currentDate():
             self.scanned_veg_value.setText(str(veg))
             self.scanned_non_veg_value.setText(str(non_veg))
-    
-    def check_total_status(self):
-        date = self.total_date_inp.date().toString("yyyy-MM-dd")
-        
-        self.loading_overlay.show()
-        self.worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-total-meal-preferences-count"], GET, target_date=date)
-        self.worker.bind_and_start(self.on_api_success_total, UtilityFunctions.api_failure_coroutine)
 
     def check_scanned_status(self):
         date = self.scanned_date_inp.date().toString("yyyy-MM-dd")

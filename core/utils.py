@@ -571,8 +571,7 @@ class AppStateManager(QObject):
 
     def __fetch_total_meal_count(self):
         from core.client_network import ClientNetworkThread
-        current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
-        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-total-meal-preferences-count"], GET, target_date=current_date)
+        worker = ClientNetworkThread(self, API_ENDPOINTS["fetch-total-meal-preferences-count"], GET)
         self.workers.append(worker)
 
         def on_success(action, data):

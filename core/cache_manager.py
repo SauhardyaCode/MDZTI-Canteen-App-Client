@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Union
 import sqlite3
 from PyQt6.QtCore import QTimer, pyqtSignal, QObject
 from datetime import datetime
+from contextlib import contextmanager
 
 from core.utils import API_ENDPOINTS, POST, UtilityFunctions
 from core.client_network import ClientNetworkThread
@@ -19,12 +20,32 @@ class CacheManager(QObject):
         self.__hasher = PasswordHasher()
         self.__init_db()
         self.__init_timer()
-
-    def __init_db(self):
+    
+    @contextmanager
+    def get_connection(self, err_msg = "Error", err_data = None):
+        conn = None
+        cursor = None
         try:
             conn = sqlite3.connect(self.__CACHE_PATH)
             cursor = conn.cursor()
+            yield cursor
 
+            if conn and not conn.closed:
+                conn.commit()
+
+        except Exception as e:
+            if conn and not conn.closed:
+                conn.rollback()
+            print(f"{err_msg}: {str(e)}")
+            return err_data
+        finally:
+            if cursor and not cursor.closed:
+                cursor.close()
+            if conn and not conn.closed:
+                conn.close()
+
+    def __init_db(self):
+        with self.get_connection("Error initializing tables") as cursor:
             cursor.execute('''CREATE TABLE IF NOT EXISTS active_trainees (
                                 assignment_id INTEGER PRIMARY KEY,
                                 token_number INTEGER UNIQUE,
@@ -57,34 +78,43 @@ class CacheManager(QObject):
                                 assignment_id INTEGER,
                                 scan_date TEXT,
                                 scan_time TEXT,
+                                meal_type TEXT,
+                                sync_status INTEGER DEFAULT 0,
                                 FOREIGN KEY (assignment_id) REFERENCES active_trainees (assignment_id)
                         )''')
-                        
-            conn.commit()
 
             cursor.execute("SELECT value from settings WHERE key = 'last_sync_time'")
             res = cursor.fetchone()
             if res:
                 self.last_sync = res[0]
-        
-        except Exception as e:
-            print(f"ERROR: {str(e)}")
-        
-        finally:
-            cursor.close()
-            conn.close()
     
     def __init_timer(self):
         self.nudge_timer = QTimer(self)
         self.nudge_timer.timeout.connect(self.__nudge_backend)
     
     def __nudge_backend(self):
-        self.__worker = ClientNetworkThread(
-            self, API_ENDPOINTS["nudge-backend-to-save-to-local-cache"], POST,
-            last_sync_str=self.last_sync
-        )
-        self.__worker.client_offline.connect(self.__set_client_offline)
-        self.__worker.bind_and_start(self.__on_api_success, self.__set_server_offline)
+        # Sync the qr_scans table of server
+        with self.get_connection("Error syncing qr_scans") as cursor:
+            cursor.execute("SELECT assignment_id, scan_date, scan_time, meal_type FROM qr_scans WHERE sync_status <> 0")
+            res = cursor.fetchall()
+
+            if res:
+                # i want to call an API endpoint which allows offline scans to upload onto main database
+                cursor.execute("UPDATE qr_scans SET sync_status = 0 WHERE sync_status <> 0")
+                offline_scans = [
+                    {"assignment_id": row[0], "date": row[1], "time": row[2], "meal_type": row[3]}
+                    for row in res
+                ]
+            else:
+                offline_scans = None
+
+
+            self.__worker = ClientNetworkThread(
+                self, API_ENDPOINTS["nudge-backend-to-save-to-local-cache"], POST,
+                json_data = {"last_sync_str": self.last_sync, "scans": offline_scans}
+            )
+            self.__worker.client_offline.connect(self.__set_client_offline)
+            self.__worker.bind_and_start(self.__on_api_success, self.__set_server_offline)
     
     def __update_connection_status(self, new_status_idx: int):
         if self.__status != new_status_idx:
@@ -151,6 +181,7 @@ class CacheManager(QObject):
             for row in exceptions
         ]
 
+        print(assignments_list_of_tuple)
 
         # Sync the active_trainees table
         upsert_query = """
@@ -176,10 +207,10 @@ class CacheManager(QObject):
         """
         cursor.executemany(upsert_query, assignments_list_of_tuple)
         
-        valid_backend_tokens = [row["token_number"] for row in assignments]
+        valid_backend_tokens = [row["assignment_id"] for row in assignments]
         if valid_backend_tokens:
             placeholders = ",".join(["?"] * len(valid_backend_tokens))
-            delete_query = f"DELETE FROM active_trainees WHERE token_number NOT IN ({placeholders})"
+            delete_query = f"DELETE FROM active_trainees WHERE assignment_id NOT IN ({placeholders})"
         else:
             delete_query = "DELETE FROM active_trainees;"
         
@@ -236,9 +267,7 @@ class CacheManager(QObject):
         return self.__STATUSES[self.__status]
     
     def get_data(self, key: str) -> Union[List[tuple], None]:
-        try:
-            conn = sqlite3.connect(self.__CACHE_PATH)
-            cursor = conn.cursor()
+        with self.get_connection("Error fetching data from cache") as cursor:
             if key == "assignments":
                 cursor.execute("""SELECT token_number, token_id, trainee_name, trainee_desg,
                                course_start_date, course_end_date, meal_preference
@@ -266,40 +295,33 @@ class CacheManager(QObject):
                 return None
 
             return cursor.fetchall()
-        
-        except Exception as e:
-            print(f"Error fetching data from cache: {str(e)}")
-            return None
-        finally:
-            cursor.close()
-            conn.close()
     
-    def add_scan(self, token_number: int, scan_date: str, scan_time: str) -> bool:
-        try:
-            conn = sqlite3.connect(self.__CACHE_PATH)
-            cursor = conn.cursor()
+    # def add_scan(self, token_number: int, scan_date: str, scan_time: str) -> bool:
+    #     try:
+    #         conn = sqlite3.connect(self.__CACHE_PATH)
+    #         cursor = conn.cursor()
 
-            cursor.execute("SELECT assignment_id FROM active_trainees WHERE token_number = ?", (token_number,))
-            res = cursor.fetchone()
-            if not res:
-                return False
+    #         cursor.execute("SELECT assignment_id FROM active_trainees WHERE token_number = ?", (token_number,))
+    #         res = cursor.fetchone()
+    #         if not res:
+    #             return False
             
-            assignment_id = res[0]
-            current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
-            cursor.execute("DELETE FROM qr_scans WHERE scan_date < ?", (current_date,))
+    #         assignment_id = res[0]
+    #         current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
+    #         cursor.execute("DELETE FROM qr_scans WHERE scan_date < ?", (current_date,))
 
-            cursor.execute("""INSERT INTO qr_scans (assignment_id, scan_date, scan_time)
-                                VALUES (?, ?, ?)
-                           """, (assignment_id, scan_date, scan_time))
-            conn.commit()
-            return True
+    #         cursor.execute("""INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type)
+    #                             VALUES (?, ?, ?, ?)
+    #                        """, (assignment_id, scan_date, scan_time, meal_slot_name))
+    #         conn.commit()
+    #         return True
 
-        except Exception:
-            conn.rollback()
-            return False
-        finally:
-            cursor.close()
-            conn.close()
+    #     except Exception:
+    #         conn.rollback()
+    #         return False
+    #     finally:
+    #         cursor.close()
+    #         conn.close()
 
     def verify_token_and_supply_data(
         self,
@@ -377,16 +399,16 @@ class CacheManager(QObject):
             active_lunch_slot = custom_lunch_slot or active_lunch_slot
             active_dinner_slot = custom_dinner_slot or active_dinner_slot
         
-        time_slot_names = ("Breakfast", "Lunch", "Dinner")
+        time_slot_names = ("BREAKFAST", "LUNCH", "DINNER")
         active_time_slots = (active_breakfast_slot, active_lunch_slot, active_dinner_slot)
         
         matched_slot_name = None
-        matched_slot_value = None
+        # matched_slot_value = None
 
         for slot_type, slot in zip(time_slot_names, active_time_slots):
             if UtilityFunctions.is_time_in_slot(current_time, slot):
                 matched_slot_name = slot_type
-                matched_slot_value = slot
+                # matched_slot_value = slot
                 break
         
         if not matched_slot_name:
@@ -397,18 +419,36 @@ class CacheManager(QObject):
             }
         
         cursor.execute(
-            "SELECT scan_time FROM qr_scans WHERE assignment_id = ? AND scan_date = ?",
+            "SELECT meal_type FROM qr_scans WHERE assignment_id = ? AND scan_date = ?",
             (assignment_id, current_date)
         )
-        scan_times_today = [res[0] for res in cursor.fetchall()]
+        meals_taken_today = [res[0] for res in cursor.fetchall()]
 
-        for scan_time in scan_times_today:
-            # Check - Has the trainee already taken the meal receipt for that slot that day?
-            if UtilityFunctions.is_time_in_slot(scan_time, matched_slot_value):
-                return {
-                    "status": "failure",
-                    "message": f"The trainee has already taken the meal for {matched_slot_name.upper()}!"
-                }
+
+        if matched_slot_name in meals_taken_today:
+            return {
+                "status": "failure",
+                "message": f"The trainee has already taken the meal for {matched_slot_name.upper()}!"
+            }
+
+        # cursor.execute(
+        #     "SELECT scan_time FROM qr_scans WHERE assignment_id = ? AND scan_date = ?",
+        #     (assignment_id, current_date)
+        # )
+        # scan_times_today = [res[0] for res in cursor.fetchall()]
+
+        # for scan_time in scan_times_today:
+        #     # Check - Has the trainee already taken the meal receipt for that slot that day?
+        #     if UtilityFunctions.is_time_in_slot(scan_time, matched_slot_value):
+        #         return {
+        #             "status": "failure",
+        #             "message": f"The trainee has already taken the meal for {matched_slot_name.upper()}!"
+        #         }
+
+        cursor.execute(
+            '''INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type, sync_status)
+            VALUES (?, ?, ?, ?, ?)''', (assignment_id, current_date, current_time, matched_slot_name, self.__status)
+        )
 
         return {"status": "success", "token_id": token_id, "token_number": token_number, "trainee_name": name,
                 "trainee_desg": desg, "meal_preference": preference}
@@ -436,10 +476,12 @@ class CacheManager(QObject):
                 "message": "Invalid QR Code scanned! (Invalid Hash)"
             }
 
-        try:
-            conn = sqlite3.connect(self.__CACHE_PATH)
-            cursor = conn.cursor()
-            
+        with self.get_connection(
+            err_data={
+                "status": "failure",
+                "message": "Error verifying token"
+            }
+        ) as cursor:
             cursor.execute("SELECT 1 FROM active_trainees WHERE token_id = ?", (token_id,))
             res = cursor.fetchone()
 
@@ -451,22 +493,14 @@ class CacheManager(QObject):
                 }
             
             return self.verify_token_and_supply_data(cursor, token_id=token_id, token_number=token_number)
-            
-        except Exception as e:
-            conn.rollback()
-            return {
-                "status": "failure",
-                "message": "Error verifying token"
-            }
-        finally:
-            cursor.close()
-            conn.close()
     
     def verify_typed_token(self, token_number: int) -> Dict[str, Union[str, int]]:
-        try:
-            conn = sqlite3.connect(self.__CACHE_PATH)
-            cursor = conn.cursor()
-            
+        with self.get_connection(
+            err_data={
+                "status": "failure",
+                "message": f"Error verifying token"
+            }
+        ) as cursor:  
             cursor.execute("SELECT token_id FROM active_trainees WHERE token_number = ?", (token_number,))
             res = cursor.fetchone()
 
@@ -480,13 +514,3 @@ class CacheManager(QObject):
                 token_id = res[0]
             
             return self.verify_token_and_supply_data(cursor, token_id=token_id, token_number=token_number)
-
-        except Exception as e:
-            conn.rollback()
-            return {
-                "status": "failure",
-                "message": f"Error verifying token: {e}"
-            }
-        finally:
-            cursor.close()
-            conn.close()

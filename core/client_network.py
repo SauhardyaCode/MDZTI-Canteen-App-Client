@@ -21,7 +21,12 @@ class ClientNetworkThread(QThread):
         
         self.action = action
         self.request_type = request_type
-        self.payload = kwargs or {}
+
+        # JSON Payload allowed only for POST request and not GET
+        if self.request_type == "POST":
+            self.payload = kwargs.get("json_data", kwargs or None)
+        elif self.request_type == "GET":
+            self.payload = kwargs or None
 
         self.__SERVER_URL = os.getenv("SERVER_URL")
         self.__API_BASE_URL = f"{self.__SERVER_URL}/api"
@@ -35,7 +40,7 @@ class ClientNetworkThread(QThread):
             try:
                 endpoint = self.__API_BASE_URL + "/" + self.action
                 if self.request_type == "POST":
-                    response = requests.post(endpoint, headers=headers, params=self.payload, timeout=10.0)
+                    response = requests.post(endpoint, headers=headers, json=self.payload, timeout=10.0)
                 elif self.request_type == "GET":
                     response = requests.get(endpoint, headers=headers, params=self.payload, timeout=10.0)
 
