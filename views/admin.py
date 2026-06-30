@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Union, Dict, Any
-from PyQt6.QtCore import Qt, QDate, QTime
+from PyQt6.QtCore import Qt, QDate, QTime, QRect
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent
 
@@ -366,6 +366,203 @@ class _AssignmentFrame(QWidget):
         trainee_name = data.get("trainee_name")
         QMessageBox.information(None, "Success", f"Successfully assigned Token ID ({token_number}) to {trainee_name}!")
 
+class _UnassignmentFrame(QWidget):
+    def __init__(self, parent: AdminWindow) -> None:
+        super().__init__()
+        self.__parent = parent
+        self.worker = None
+        self.loading_overlay = LoadingOverlay(self, "Unassigning Token...")
+        self.trainee_rows = []
+
+        self.state_manager = parent._state_manager
+        self.state_manager.active_trainees_updated.connect(self.load_active_trainees)
+
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
+        self.__parent._window_frame.setStyleSheet(GENERATE_PANEL_STYLESHEET) # can set special stylesheet also (Assignment)
+
+        title = QLabel("Take Back Token From Trainee")
+        title.setObjectName("heading")
+        input_frame = QFrame()
+        input_frame.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        input_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET) # can set special stylesheet also (Assignment)
+        input_layout = QVBoxLayout(input_frame)
+
+        input_sub_frame = QFrame()
+        input_sub_frame.setStyleSheet(GENERATE_PANEL_INPUT_STYLESHEET) # can set special stylesheet also (Assignment)
+        input_sub_layout = QGridLayout(input_sub_frame)
+        input_sub_layout.setVerticalSpacing(30)
+        input_sub_layout.setColumnMinimumWidth(1, 50)
+
+        trainee_label = QLabel("Choose Trainees:")
+        self.trainee_inp = QComboBox()
+        self.add_btn = QPushButton(" + Add")
+
+        self.trainee_inp.addItem("Fetching Trainees...")
+        self.trainee_inp.setEnabled(False)
+
+        self.add_btn.setFixedWidth(100)
+        self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
+        self.add_btn.clicked.connect(self.add_trainee)
+
+        input_sub_layout.addWidget(trainee_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
+        input_sub_layout.addWidget(self.trainee_inp, 0, 2)
+        input_sub_layout.addWidget(self.add_btn, 0, 3)
+
+        button_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(200)
+        reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        reset_btn.clicked.connect(self.perform_reset)
+
+        self.course_btn = QPushButton("Unassign")
+        self.course_btn.setFixedWidth(200)
+        self.course_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.course_btn.clicked.connect(self.unassign_tokens)
+
+        button_layout.addWidget(reset_btn)
+        button_layout.addWidget(self.course_btn)
+
+        self.trainee_frame = QFrame()
+        trainee_layout = QVBoxLayout(self.trainee_frame)
+        trainee_list_label = QLabel("Trainees Selected")
+        trainee_list_label.setStyleSheet(SUB_HEADING_STYLESHEET)
+
+        self.trainee_list_layout = QGridLayout()
+        self.trainee_list_layout.addWidget(QLabel("<b>Token ID</b>"), 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.trainee_list_layout.addWidget(QLabel("<b>Trainee Name</b>"), 0, 2, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.trainee_list_layout.addWidget(QLabel("<b>Designation</b>"), 0, 4, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self.trainee_list_layout.setVerticalSpacing(30)
+        self.trainee_list_layout.setColumnMinimumWidth(1, 100)
+        self.trainee_list_layout.setColumnMinimumWidth(3, 100)
+
+        trainee_layout.addWidget(trainee_list_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        trainee_layout.addLayout(self.trainee_list_layout)
+        self.trainee_frame.hide()
+
+        input_layout.addWidget(input_sub_frame)
+        input_layout.addLayout(button_layout)
+        input_layout.addWidget(self.trainee_frame)
+
+        self.main_layout.addWidget(title, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addWidget(input_frame, stretch=3, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.main_layout.addStretch(stretch=2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.loading_overlay.setGeometry(self.rect())
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        self.state_manager.ensure_fresh_data("active_trainees")
+    
+    def load_active_trainees(self, data):
+        trainees = data
+        self.trainee_inp.clear()
+
+        if trainees:
+            self.trainee_inp.addItem("- Select -", "select")
+            for token, name, desg in trainees:
+                self.trainee_inp.addItem(f"{name} (ID-{token})", (token, name, desg))
+            self.trainee_inp.setEnabled(True)
+        else:
+            self.trainee_inp.addItem("No Trainees Found!", "no data")
+    
+    def add_trainee(self):
+        trainee_info = self.trainee_inp.currentData()
+
+        if trainee_info == "loading":
+            QMessageBox.warning(None, "Wait", "Hold on! The available token-IDs are being fetched!")
+            return
+        elif trainee_info == "no data":
+            QMessageBox.warning(None, "Not Available", "No trainees have been assigned tokens yet!")
+            return
+        elif trainee_info == "select":
+            QMessageBox.warning(None, "Not Selected", "Please select a trainee first!")
+            return
+
+        self.trainee_inp.setCurrentIndex(0)
+        token, name, desg = trainee_info
+        if token in [data["id"] for data in self.trainee_rows]:
+            QMessageBox.warning(None, "Duplicate Entry", f"{name} (ID-{token}) has already been selected!")
+            return
+
+        rem_btn = QPushButton("Remove")
+        rem_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
+        trainee_dict = {
+            "id": token,
+            "token": QLabel(str(token)),
+            "name": QLabel(name),
+            "desg": QLabel(desg),
+            "remove": rem_btn
+        }
+        rem_btn.clicked.connect(lambda: self.remove_trainee(trainee_dict))
+
+        self.trainee_rows.append(trainee_dict)
+        self.rebuild_grid()
+
+    def remove_trainee(self, data: Dict[str, Union[int, QWidget]]):
+        self.trainee_rows.remove(data)
+        for item in data.values():
+            if type(item)!=int:
+                item.deleteLater()
+        self.rebuild_grid()
+
+    def rebuild_grid(self):
+        while self.trainee_list_layout.count()>3:
+            item = self.trainee_list_layout.takeAt(3)
+            if not self.trainee_rows:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+        
+        current_row = 1
+        for row in self.trainee_rows:
+            self.trainee_list_layout.addWidget(row["token"], current_row, 0)
+            self.trainee_list_layout.addWidget(row["name"], current_row, 2)
+            self.trainee_list_layout.addWidget(row["desg"], current_row, 4)
+            self.trainee_list_layout.addWidget(row["remove"], current_row, 5)
+            current_row += 1
+        
+        if self.trainee_rows:
+            self.trainee_frame.show()
+        else:
+            self.trainee_frame.hide()
+    
+    def perform_reset(self):
+        self.trainee_inp.setCurrentIndex(0)
+        self.trainee_rows.clear()
+        self.rebuild_grid()
+
+    def unassign_tokens(self):
+        if not self.trainee_rows:
+            QMessageBox.warning(None, "Not Selected", "Please select at least one trainee to unassign!")
+            return
+        
+        token_number_arr = [data["id"] for data in self.trainee_rows]
+        self.loading_overlay.show()
+
+        self.worker = ClientNetworkThread(
+            self, API_ENDPOINTS["take-back-token-from-trainee"], POST,
+            token_number_arr=token_number_arr
+        )
+        self.worker.bind_and_start(self.on_api_success, UtilityFunctions.api_failure_coroutine)
+
+    def on_api_success(self, action: str, data: dict):
+        print(f"Success caught for action: {action}")
+        self.loading_overlay.hide()
+        self.perform_reset()
+
+        self.state_manager.invalidate_cache("token_stats")
+        self.state_manager.invalidate_cache("tokens_by_status")
+        self.state_manager.invalidate_cache("active_trainees")
+        self.state_manager.invalidate_cache("total_meal_count")
+
+        self.state_manager.ensure_fresh_data("active_trainees")
+        
+        QMessageBox.information(None, "Success", data.get("message"))
+
 class _CourseIntervalUpdateFrame(QWidget):
     def __init__(self, parent: AdminWindow) -> None:
         super().__init__()
@@ -520,7 +717,11 @@ class _CourseIntervalUpdateFrame(QWidget):
 
     def rebuild_grid(self):
         while self.trainee_list_layout.count()>3:
-            self.trainee_list_layout.takeAt(3)
+            item = self.trainee_list_layout.takeAt(3)
+            if not self.trainee_rows:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
         
         current_row = 1
         for row in self.trainee_rows:
@@ -1284,17 +1485,41 @@ class _PreferenceStatsFrame(QWidget):
         scanned_sub_input_layout.setColumnMinimumWidth(2, 100)
         scanned_sub_input_layout.setColumnMinimumWidth(3, 100)
 
-        scanned_veg_label = QLabel("<u><b>VEG:</b></u>")
-        scanned_veg_label.setStyleSheet("color: green; font-size: 18px;")
-        self.scanned_veg_value = QLabel("Loading...")
-        self.scanned_veg_value.setMinimumWidth(100)
-        self.scanned_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+        scanned_breakfast_label = QLabel("<u><b>Breakfast</b></u>")
+        scanned_bf_veg_label = QLabel("<u><b>VEG:</b></u>")
+        scanned_bf_veg_label.setStyleSheet("color: green; font-size: 18px;")
+        self.scanned_bf_veg_value = QLabel("Loading...")
+        self.scanned_bf_veg_value.setMinimumWidth(100)
+        self.scanned_bf_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+        scanned_bf_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
+        scanned_bf_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
+        self.scanned_bf_non_veg_value = QLabel("Loading...")
+        self.scanned_bf_non_veg_value.setMinimumWidth(100)
+        self.scanned_bf_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
 
-        scanned_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
-        scanned_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
-        self.scanned_non_veg_value = QLabel("Loading...")
-        self.scanned_non_veg_value.setMinimumWidth(100)
-        self.scanned_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+        scanned_lunch_label = QLabel("<u><b>Lunch</b></u>")
+        scanned_ln_veg_label = QLabel("<u><b>VEG:</b></u>")
+        scanned_ln_veg_label.setStyleSheet("color: green; font-size: 18px;")
+        self.scanned_ln_veg_value = QLabel("Loading...")
+        self.scanned_ln_veg_value.setMinimumWidth(100)
+        self.scanned_ln_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+        scanned_ln_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
+        scanned_ln_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
+        self.scanned_ln_non_veg_value = QLabel("Loading...")
+        self.scanned_ln_non_veg_value.setMinimumWidth(100)
+        self.scanned_ln_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+
+        scanned_dinner_label = QLabel("<u><b>Dinner</b></u>")
+        scanned_dn_veg_label = QLabel("<u><b>VEG:</b></u>")
+        scanned_dn_veg_label.setStyleSheet("color: green; font-size: 18px;")
+        self.scanned_dn_veg_value = QLabel("Loading...")
+        self.scanned_dn_veg_value.setMinimumWidth(100)
+        self.scanned_dn_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
+        scanned_dn_non_veg_label = QLabel("<u><b>NON-VEG:</b></u>")
+        scanned_dn_non_veg_label.setStyleSheet("color: brown; font-size: 18px;")
+        self.scanned_dn_non_veg_value = QLabel("Loading...")
+        self.scanned_dn_non_veg_value.setMinimumWidth(100)
+        self.scanned_dn_non_veg_value.setStyleSheet("font-size: 20px; font-weight: 600;")
 
         scanned_date_label = QLabel("Select Date To View Count:")
         self.scanned_date_inp = QDateEdit()
@@ -1302,12 +1527,26 @@ class _PreferenceStatsFrame(QWidget):
         self.scanned_date_inp.setCalendarPopup(True)
         self.scanned_date_inp.setDate(QDate.currentDate())
 
-        scanned_sub_input_layout.addWidget(scanned_veg_label, 0, 0)
-        scanned_sub_input_layout.addWidget(self.scanned_veg_value, 0, 1)
-        scanned_sub_input_layout.addWidget(scanned_non_veg_label, 0, 4)
-        scanned_sub_input_layout.addWidget(self.scanned_non_veg_value, 0, 5)
-        scanned_sub_input_layout.addWidget(scanned_date_label, 1, 0, 1, 3)
-        scanned_sub_input_layout.addWidget(self.scanned_date_inp, 1, 3, 1, 2)
+        scanned_sub_input_layout.addWidget(scanned_breakfast_label, 0, 0)
+        scanned_sub_input_layout.addWidget(scanned_bf_veg_label, 1, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_bf_veg_value, 1, 1)
+        scanned_sub_input_layout.addWidget(scanned_bf_non_veg_label, 1, 4)
+        scanned_sub_input_layout.addWidget(self.scanned_bf_non_veg_value, 1, 5)
+
+        scanned_sub_input_layout.addWidget(scanned_lunch_label, 2, 0)
+        scanned_sub_input_layout.addWidget(scanned_ln_veg_label, 3, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_ln_veg_value, 3, 1)
+        scanned_sub_input_layout.addWidget(scanned_ln_non_veg_label, 3, 4)
+        scanned_sub_input_layout.addWidget(self.scanned_ln_non_veg_value, 3, 5)
+
+        scanned_sub_input_layout.addWidget(scanned_dinner_label, 4, 0)
+        scanned_sub_input_layout.addWidget(scanned_dn_veg_label, 5, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_dn_veg_value, 5, 1)
+        scanned_sub_input_layout.addWidget(scanned_dn_non_veg_label, 5, 4)
+        scanned_sub_input_layout.addWidget(self.scanned_dn_non_veg_value, 5, 5)
+
+        scanned_sub_input_layout.addWidget(scanned_date_label, 6, 0, 1, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_date_inp, 6, 3, 1, 2)
 
         self.scanned_check_btn = QPushButton("Check Count")
         self.scanned_check_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
@@ -1340,6 +1579,19 @@ class _PreferenceStatsFrame(QWidget):
         super().hideEvent(event)
         self.state_manager.scan_poll_timer.stop()
     
+    def show_scanned_meal_count_ui(self, data: dict):
+        fallback_counts = {"veg": 0, "non-veg": 0}
+        bf = data.get("BREAKFAST", fallback_counts)
+        ln = data.get("LUNCH", fallback_counts)
+        dn = data.get("DINNER", fallback_counts)
+
+        self.scanned_bf_veg_value.setText(str(bf.get("veg")))
+        self.scanned_bf_non_veg_value.setText(str(bf.get("non-veg")))
+        self.scanned_ln_veg_value.setText(str(ln.get("veg")))
+        self.scanned_ln_non_veg_value.setText(str(ln.get("non-veg")))
+        self.scanned_dn_veg_value.setText(str(dn.get("veg")))
+        self.scanned_dn_non_veg_value.setText(str(dn.get("non-veg")))
+    
     def load_total_meal_count(self, data):
         veg = data.get("veg")
         non_veg = data.get("non-veg")
@@ -1347,12 +1599,8 @@ class _PreferenceStatsFrame(QWidget):
         self.total_non_veg_value.setText(str(non_veg))
 
     def load_scanned_meal_count(self, data):
-        veg = data.get("veg")
-        non_veg = data.get("non-veg")
-
         if self.last_checked_date_scanned == QDate.currentDate():
-            self.scanned_veg_value.setText(str(veg))
-            self.scanned_non_veg_value.setText(str(non_veg))
+            self.show_scanned_meal_count_ui(data)
 
     def check_scanned_status(self):
         date = self.scanned_date_inp.date().toString("yyyy-MM-dd")
@@ -1373,10 +1621,7 @@ class _PreferenceStatsFrame(QWidget):
     def on_api_success_scanned(self, action: str, data: dict):
         print(f"Success caught for action: {action}")
         self.loading_overlay.hide()
-        veg = data.get("veg")
-        non_veg = data.get("non-veg")
-        self.scanned_veg_value.setText(str(veg))
-        self.scanned_non_veg_value.setText(str(non_veg))
+        self.show_scanned_meal_count_ui(data)
         self.last_checked_date_scanned = self.scanned_date_inp.date()
 
         if self.last_checked_date_scanned == QDate.currentDate():
@@ -1385,12 +1630,12 @@ class _PreferenceStatsFrame(QWidget):
             self.state_manager.scan_poll_timer.stop()
 
 class AdminWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, geometry: QRect) -> None:
         super().__init__()
         self.__WINDOWS = (
             _PreferenceStatsFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
             _SpecialConfigFrame, _SettingsFrame, _GenerationFrame,
-            _DestroyFrame
+            _UnassignmentFrame, _DestroyFrame
         )
         self.__current_window = None
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
@@ -1401,6 +1646,7 @@ class AdminWindow(QMainWindow):
         screen_height = screen.height()
         self.setMinimumSize(screen_width-300, screen_height-200)
         self.setWindowTitle("Canteen Manager App (Admin)")
+        self.setGeometry(geometry)
 
         main_central_widget = QWidget(self)
         main_central_widget.setStyleSheet(ROOT_STYLESHEET)
@@ -1428,11 +1674,12 @@ class AdminWindow(QMainWindow):
         special_tab_switch_btn = QPushButton("Set Special Configurations")
         settings_tab_switch_btn = QPushButton("Settings")
         generate_tab_switch_btn = QPushButton("Generate New QR Tokens")
+        unassign_tab_switch_btn = QPushButton("Take Back Tokens")
         destroy_tab_switch_btn = QPushButton("Destroy Wasted QR Tokens")
         self.__window_switch_buttons = (
             preference_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
             special_tab_switch_btn, settings_tab_switch_btn, generate_tab_switch_btn,
-            destroy_tab_switch_btn
+            unassign_tab_switch_btn, destroy_tab_switch_btn
         )
 
         for i, btn in enumerate(self.__window_switch_buttons):

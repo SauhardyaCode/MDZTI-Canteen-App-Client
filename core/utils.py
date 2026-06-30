@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 import os
+from dotenv import load_dotenv
 import io
 import qrcode
 from reportlab.lib.pagesizes import inch
@@ -22,6 +23,13 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Page
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.colors import HexColor
+
+import smtplib
+import random
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+load_dotenv()
 
 __all__ = [
     "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
@@ -43,9 +51,12 @@ API_ENDPOINTS = {
     "fetch-current-settings": "get-settings",
     "fetch-total-meal-preferences-count": "get-total-meal-data",
     "fetch-scanned-meal-preferences-count": "get-scanned-meal-data",
+    "add-new-user-role": "add-user",
+    "verify-user-by-role": "verify-user",
     "configure-settings-key-value-pairs": "configure-settings",
     "generate-new-physical-qr-token": "generate-new-token",
     "assign-existing-token-to-trainee": "assign-token",
+    "take-back-token-from-trainee": "unassign-tokens",
     "verify-qr-token-scanned-by-trainee": "verify-token",
     "verify-qr-token-input-by-manager": "verify-token-manual",
     "change-course-interval-of-trainees": "change-course-interval",
@@ -201,6 +212,43 @@ class UtilityFunctions:
         except Exception as e:
             print(f"Failed to generate local client report template: {e}")
             return False
+    
+    @staticmethod
+    def send_otp_email(receiver_email: str, receiver_role: str) -> Optional[str]:
+        sender_email = os.getenv("OTP_EMAIL")
+        app_password = os.getenv("OTP_EMAIL_PASS")
+
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 465
+        otp_code = random.randint(100000, 999999)
+
+        message = MIMEMultipart()
+        message["From"] = sender_email
+        message["To"] = receiver_email
+        message["Subject"] = f"Email Verification for MDZTI/APDJ Canteen App ({receiver_role.title()})"
+        
+        body = f"""Hello,
+Your One-Time Password (OTP) for verification is: {otp_code}
+
+This code is valid for 5 minutes. Please do not share this code with anyone.
+
+Best regards,
+Sauhardya Haldar
+Developer, Canteen Management App"""
+
+        message.attach(MIMEText(body, "plain"))
+
+        try:
+            # Connect to the Gmail SMTP server securely using SSL
+            with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                server.login(sender_email, app_password)
+                server.sendmail(sender_email, receiver_email, message.as_string())
+            print(f"OTP successfully sent to {receiver_email}!")
+            return str(otp_code)
+        except Exception as e:
+            print(f"Failed to send email. Error: {e}")
+            return None
+
 
 class ToggleSwitch(QAbstractButton):
     def __init__(self, parent=None):

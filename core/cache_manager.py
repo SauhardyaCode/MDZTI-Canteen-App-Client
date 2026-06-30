@@ -30,18 +30,19 @@ class CacheManager(QObject):
             cursor = conn.cursor()
             yield cursor
 
-            if conn and not conn.closed:
+            if conn:
                 conn.commit()
 
         except Exception as e:
-            if conn and not conn.closed:
+            raise
+            if conn:
                 conn.rollback()
             print(f"{err_msg}: {str(e)}")
             return err_data
         finally:
-            if cursor and not cursor.closed:
+            if cursor:
                 cursor.close()
-            if conn and not conn.closed:
+            if conn:
                 conn.close()
 
     def __init_db(self):
@@ -82,6 +83,10 @@ class CacheManager(QObject):
                                 sync_status INTEGER DEFAULT 0,
                                 FOREIGN KEY (assignment_id) REFERENCES active_trainees (assignment_id)
                         )''')
+            
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_qr_scans_composite
+                                ON qr_scans (assignment_id, scan_date, scan_time, meal_type)
+                           ''')
 
             cursor.execute("SELECT value from settings WHERE key = 'last_sync_time'")
             res = cursor.fetchone()
@@ -100,7 +105,6 @@ class CacheManager(QObject):
 
             if res:
                 # i want to call an API endpoint which allows offline scans to upload onto main database
-                cursor.execute("UPDATE qr_scans SET sync_status = 0 WHERE sync_status <> 0")
                 offline_scans = [
                     {"assignment_id": row[0], "date": row[1], "time": row[2], "meal_type": row[3]}
                     for row in res
@@ -108,13 +112,11 @@ class CacheManager(QObject):
             else:
                 offline_scans = None
 
-
             self.__worker = ClientNetworkThread(
                 self, API_ENDPOINTS["nudge-backend-to-save-to-local-cache"], POST,
                 json_data = {"last_sync_str": self.last_sync, "scans": offline_scans}
             )
-            self.__worker.client_offline.connect(self.__set_client_offline)
-            self.__worker.bind_and_start(self.__on_api_success, self.__set_server_offline)
+            self.__worker.bind_and_start(self.__on_api_success, self.__set_server_offline, self.set_client_offline)
     
     def __update_connection_status(self, new_status_idx: int):
         if self.__status != new_status_idx:
@@ -128,9 +130,7 @@ class CacheManager(QObject):
         status = data.get("status")
         sync_time = data.get("server_sync_time")
 
-        try:
-            conn = sqlite3.connect(self.__CACHE_PATH)
-            cursor = conn.cursor()
+        with self.get_connection("Sync failed") as cursor:
 
             # Enable WAL mode for drastically improved write performance
             cursor.execute("PRAGMA journal_mode=WAL;")
@@ -141,6 +141,7 @@ class CacheManager(QObject):
                 ON CONFLICT (key)
                 DO UPDATE SET value = EXCLUDED.value
             ''', (sync_time,))
+            cursor.execute("UPDATE qr_scans SET sync_status = 0 WHERE sync_status <> 0")
 
             if status == "up_to_date":
                 print("Local cache already up to date!")
@@ -148,20 +149,13 @@ class CacheManager(QObject):
             elif status == "synced_now":
                 print("Syncing cache with database...")
                 start_time = datetime.now()
-                self.__sync_with_backend(conn, cursor, data)
+                self.__sync_with_backend(cursor, data)
                 elapsed_time = datetime.now() - start_time
                 print(f"Synced cache successfully in {elapsed_time}s!")
             
             self.last_sync = sync_time
-
-        except Exception as e:
-            conn.rollback()
-            print(f"Sync failed: {e}")
-        finally:
-            cursor.close()
-            conn.close()
     
-    def __sync_with_backend(self, conn: sqlite3.Connection, cursor: sqlite3.Cursor, data: Dict[str, Any]):
+    def __sync_with_backend(self, cursor: sqlite3.Cursor, data: Dict[str, Any]):
         assignments: List = data.get("assignments", [])
         assignments_list_of_tuple = [
             (row["assignment_id"], row["token_number"], row["token_id"],
@@ -179,6 +173,12 @@ class CacheManager(QObject):
              row["breakfast_time_slot"], row["lunch_time_slot"],
              row["dinner_time_slot"], row["is_suspended"]) 
             for row in exceptions
+        ]
+
+        scans: List = data.get("scans", [])
+        scans_list_of_tuple = [
+            (row["assignment_id"], row["scan_date"], row["scan_time"], row["meal_type"])
+            for row in scans
         ]
 
         print(assignments_list_of_tuple)
@@ -215,8 +215,7 @@ class CacheManager(QObject):
             delete_query = "DELETE FROM active_trainees;"
         
         cursor.execute(delete_query, valid_backend_tokens)
-        conn.commit()
-        print("Sync complete [1/3]: active_trainees TABLE synced successfully!")
+        print("Sync complete [1/4]: active_trainees TABLE synced successfully!")
 
 
         # Sync the settings table
@@ -228,8 +227,7 @@ class CacheManager(QObject):
         """
 
         cursor.executemany(upsert_query, settings_list_of_tuple)
-        conn.commit()
-        print("Sync complete [2/3]: settings TABLE synced successfully!")
+        print("Sync complete [2/4]: settings TABLE synced successfully!")
 
 
         # Sync the exceptions table
@@ -247,17 +245,26 @@ class CacheManager(QObject):
         """
 
         cursor.executemany(insert_query, exceptions_list_of_tuple)
-        conn.commit()
-        print("Sync complete [3/3]: exceptions TABLE synced successfully!")
+        print("Sync complete [3/4]: exceptions TABLE synced successfully!")
 
-    def __set_client_offline(self):
-        print("Client Offline")
-        self.__update_connection_status(1)
+
+        # Sync the qr_scans table
+        cursor.execute("DELETE FROM qr_scans;")
+        placeholders = ', '.join(["(?, ?, ?, ?)"] * len(scans))
+        flat_params = [val for row in scans_list_of_tuple for val in row]
+        if flat_params:
+            query = f"INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type) VALUES {placeholders}"
+            cursor.execute(query, flat_params)
+        print("Sync complete [4/4]: qr_scans TABLE synced successfully!")
 
     def __set_server_offline(self, action, error_msg):
         print("Server Down")
         print(f"Error caught on action: {action}\n{error_msg}")
         self.__update_connection_status(2)
+
+    def set_client_offline(self):
+        print("Client Offline")
+        self.__update_connection_status(1)
 
     def start_sync(self, interval_ms: int) -> None:
         self.__nudge_backend()
@@ -296,33 +303,24 @@ class CacheManager(QObject):
 
             return cursor.fetchall()
     
-    # def add_scan(self, token_number: int, scan_date: str, scan_time: str) -> bool:
-    #     try:
-    #         conn = sqlite3.connect(self.__CACHE_PATH)
-    #         cursor = conn.cursor()
+    def add_online_scan(self, token_number: int, scan_date: str, scan_time: str, meal_type: str) -> bool:
+        with self.get_connection() as cursor:
 
-    #         cursor.execute("SELECT assignment_id FROM active_trainees WHERE token_number = ?", (token_number,))
-    #         res = cursor.fetchone()
-    #         if not res:
-    #             return False
+            cursor.execute("SELECT assignment_id FROM active_trainees WHERE token_number = ?", (token_number,))
+            res = cursor.fetchone()
+            if not res:
+                return False
             
-    #         assignment_id = res[0]
-    #         current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
-    #         cursor.execute("DELETE FROM qr_scans WHERE scan_date < ?", (current_date,))
+            assignment_id = res[0]
+            current_date = UtilityFunctions.get_current_ist_datetime().strftime("%Y-%m-%d")
+            cursor.execute("DELETE FROM qr_scans WHERE scan_date < ?", (current_date,))
 
-    #         cursor.execute("""INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type)
-    #                             VALUES (?, ?, ?, ?)
-    #                        """, (assignment_id, scan_date, scan_time, meal_slot_name))
-    #         conn.commit()
-    #         return True
+            cursor.execute("""INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type)
+                                VALUES (?, ?, ?, ?)
+                           """, (assignment_id, scan_date, scan_time, meal_type))
+            return True
 
-    #     except Exception:
-    #         conn.rollback()
-    #         return False
-    #     finally:
-    #         cursor.close()
-    #         conn.close()
-
+    # Called from methods that are called when client is offline
     def verify_token_and_supply_data(
         self,
         cursor: sqlite3.Cursor,
@@ -403,12 +401,10 @@ class CacheManager(QObject):
         active_time_slots = (active_breakfast_slot, active_lunch_slot, active_dinner_slot)
         
         matched_slot_name = None
-        # matched_slot_value = None
 
         for slot_type, slot in zip(time_slot_names, active_time_slots):
             if UtilityFunctions.is_time_in_slot(current_time, slot):
                 matched_slot_name = slot_type
-                # matched_slot_value = slot
                 break
         
         if not matched_slot_name:
@@ -430,21 +426,7 @@ class CacheManager(QObject):
                 "status": "failure",
                 "message": f"The trainee has already taken the meal for {matched_slot_name.upper()}!"
             }
-
-        # cursor.execute(
-        #     "SELECT scan_time FROM qr_scans WHERE assignment_id = ? AND scan_date = ?",
-        #     (assignment_id, current_date)
-        # )
-        # scan_times_today = [res[0] for res in cursor.fetchall()]
-
-        # for scan_time in scan_times_today:
-        #     # Check - Has the trainee already taken the meal receipt for that slot that day?
-        #     if UtilityFunctions.is_time_in_slot(scan_time, matched_slot_value):
-        #         return {
-        #             "status": "failure",
-        #             "message": f"The trainee has already taken the meal for {matched_slot_name.upper()}!"
-        #         }
-
+        
         cursor.execute(
             '''INSERT INTO qr_scans (assignment_id, scan_date, scan_time, meal_type, sync_status)
             VALUES (?, ?, ?, ?, ?)''', (assignment_id, current_date, current_time, matched_slot_name, self.__status)
@@ -453,6 +435,7 @@ class CacheManager(QObject):
         return {"status": "success", "token_id": token_id, "token_number": token_number, "trainee_name": name,
                 "trainee_desg": desg, "meal_preference": preference}
     
+    # Called only when client offline
     def verify_scanned_token(self, token_id: str) -> Dict[str, Union[str, int]]:
         parts = token_id.split('.')
         if (len(parts)!=2):
@@ -494,6 +477,7 @@ class CacheManager(QObject):
             
             return self.verify_token_and_supply_data(cursor, token_id=token_id, token_number=token_number)
     
+    # Called only when client offline
     def verify_typed_token(self, token_number: int) -> Dict[str, Union[str, int]]:
         with self.get_connection(
             err_data={

@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import Union, Dict, Any
-from PyQt6.QtCore import Qt, QDate, QTime, QTimer, pyqtSignal
+from typing import Dict, Any
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRect
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent, QPixmap, QResizeEvent
+from PyQt6.QtGui import QIntValidator, QShowEvent, QPixmap, QResizeEvent
 from datetime import datetime
 
 import sys
@@ -182,7 +182,7 @@ class ManualEntryFrame(QFrame):
                 self, API_ENDPOINTS["verify-qr-token-input-by-manager"], POST, 
                 token_number=token_number
             )
-            self.worker.bind_and_start(self.on_api_success, self.on_api_failure)
+            self.worker.bind_and_start(self.on_api_success, self.on_api_failure, self.__parent.cache_manager.set_client_offline)
         
         else:
             data = self.__parent.verify_typed_token_offline(token_number)
@@ -201,8 +201,9 @@ class ManualEntryFrame(QFrame):
         name = data.get("trainee_name")
         desg = data.get("trainee_desg")
         pref = data.get("meal_preference")
+        meal_type = data.get("meal_type")
 
-        self.token_verified.emit((token_number, name, desg, pref))
+        self.token_verified.emit((token_number, name, desg, pref, meal_type))
     
     def on_api_failure(self, action: str, error_msg: str):
         self.loading_overlay.hide()
@@ -217,26 +218,67 @@ class AutomaticScannerFrame(QFrame):
         super().__init__()
         self.__parent = parent
         self.__parent.scanner_manager.scan_completed.connect(self.verify_scanned_token)
-        self.loading_overlay = LoadingOverlay(self.__parent.right_panel_frame, "Verifying Token ID...")
         self.setStyleSheet("background-color: transparent;")
+        self.loading_overlay = LoadingOverlay(self.__parent.right_panel_frame, "Verifying Token ID...")
 
+        # Main container layout
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        status_label = QLabel("No Active Scans right now! Keep Scanning...")
-
-        main_layout.addStretch(stretch=1)
-        main_layout.addWidget(status_label, stretch=0, alignment=Qt.AlignmentFlag.AlignCenter)
-        main_layout.addStretch(stretch=1)
+        main_layout.setContentsMargins(40, 40, 40, 40)
+        
+        # 1. THE CENTRAL HERO CARD
+        card_frame = QFrame()
+        card_frame.setStyleSheet(SCANNER_CARD_STYLESHEET)
+        card_layout = QVBoxLayout(card_frame)
+        card_layout.setContentsMargins(30, 50, 30, 50)
+        card_layout.setSpacing(20)
+        
+        # 2. ADD A SCANNER ICON
+        icon_label = QLabel()
+        pixmap = QPixmap("assets/scanner_placeholder.png").scaled(300, 180, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        icon_label.setPixmap(pixmap)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 3. STATUS LABEL
+        status_label = QLabel("Ready to Scan Tokens")
+        status_label.setStyleSheet("""
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #4a3b32;
+        """)
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 4. SUB-TEXT INFOBAR
+        sub_label = QLabel("Position the QR Code clearly in front of the camera lens.")
+        sub_label.setStyleSheet("font-size: 14px; color: #8a8a8a;")
+        sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Assemble the card
+        card_layout.addStretch(1)
+        card_layout.addWidget(icon_label)
+        card_layout.addWidget(status_label)
+        card_layout.addWidget(sub_label)
+        card_layout.addStretch(1)
+        
+        # Center the card within the main layout using stretches
+        main_layout.addStretch(1)
+        main_layout.addWidget(card_frame, alignment=Qt.AlignmentFlag.AlignCenter)
+        main_layout.addStretch(1)
+        
+        # Make the frame scale nicely
+        card_frame.setMinimumSize(600, 450)
     
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
-        self.__parent.right_panel_frame.setStyleSheet("background-color: #dddddd;")
+        self.__parent.right_panel_frame.setStyleSheet(SCAN_ENTRY_STYLESHEET)
     
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         self.loading_overlay.setGeometry(self.__parent.right_panel_frame.rect())
     
     def verify_scanned_token(self, token_id: str):
+        if not self.isVisible():
+            return
+
         self.loading_overlay.show()
 
         if self.__parent.cache_manager.get_status() == "online":
@@ -244,7 +286,7 @@ class AutomaticScannerFrame(QFrame):
                 self, API_ENDPOINTS["verify-qr-token-scanned-by-trainee"], POST, 
                 token_id=token_id
             )
-            self.worker.bind_and_start(self.on_api_success, self.on_api_failure)
+            self.worker.bind_and_start(self.on_api_success, self.on_api_failure, self.__parent.cache_manager.set_client_offline)
         
         else:
             data = self.__parent.verify_scanned_token_offline(token_id)
@@ -263,8 +305,9 @@ class AutomaticScannerFrame(QFrame):
         name = data.get("trainee_name")
         desg = data.get("trainee_desg")
         pref = data.get("meal_preference")
+        meal_type = data.get("meal_type")
 
-        self.token_verified.emit((token_number, name, desg, pref))
+        self.token_verified.emit((token_number, name, desg, pref, meal_type))
     
     def on_api_failure(self, action: str, error_msg: str):
         self.loading_overlay.hide()
@@ -272,7 +315,7 @@ class AutomaticScannerFrame(QFrame):
         self.token_not_verified.emit(error_msg)
 
 class CanteenWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, geometry: QRect) -> None:
         super().__init__()
         self.online_icon = QPixmap("assets/connected.png")
         self.online_icon = self.online_icon.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -302,6 +345,7 @@ class CanteenWindow(QMainWindow):
         screen_height = screen.height()
         self.setMinimumSize(screen_width-300, screen_height-200)
         self.setWindowTitle("Canteen Manager App (Canteen)")
+        self.setGeometry(geometry)
 
         main_central_widget = QWidget(self)
         main_central_widget.setStyleSheet(ROOT_STYLESHEET)
@@ -348,44 +392,7 @@ class CanteenWindow(QMainWindow):
         self.logs_layout.addWidget(logs_scroll_area, stretch=4)
 
         self.init_scan_logs()
-
-        self.status_frame = QFrame()
-        self.status_frame.setStyleSheet(STATUS_FRAME_STYLESHEET)
-        self.status_layout = QVBoxLayout(self.status_frame)
-        self.status_layout.setContentsMargins(2, 2, 2, 2)
-
-        status_label = QLabel("Meal Status")
-        status_label.setStyleSheet(SMALL_HEADING_STYLESHEET)
-
-        status_sub_frame = QFrame()
-        status_sub_frame.setStyleSheet(STATUS_SUB_FRAME_STYLESHEET)
-        status_sub_layout = QGridLayout(status_sub_frame)
-        status_sub_layout.setColumnMinimumWidth(1, 50)
-
-        veg_label = QLabel("<b>VEG Served:</b>")
-        veg_label.setStyleSheet("color: green;")
-        self.veg_served = QLabel("6")
-        self.veg_total = QLabel("37")
-        non_veg_label = QLabel("<b>NON-VEG Served:</b>")
-        non_veg_label.setStyleSheet("color: brown;")
-        self.non_veg_served = QLabel("31")
-        self.non_veg_total = QLabel("74")
-
-        status_sub_layout.addWidget(veg_label, 0, 0)
-        status_sub_layout.addWidget(self.veg_served, 0, 2, alignment=Qt.AlignmentFlag.AlignRight)
-        status_sub_layout.addWidget(QLabel("/"), 0, 3)
-        status_sub_layout.addWidget(self.veg_total, 0, 4, alignment=Qt.AlignmentFlag.AlignRight)
-        status_sub_layout.addWidget(non_veg_label, 1, 0)
-        status_sub_layout.addWidget(self.non_veg_served, 1, 2, alignment=Qt.AlignmentFlag.AlignRight)
-        status_sub_layout.addWidget(QLabel("/"), 1, 3)
-        status_sub_layout.addWidget(self.non_veg_total, 1, 4, alignment=Qt.AlignmentFlag.AlignRight)
-
-        self.status_layout.addWidget(status_label, alignment=Qt.AlignmentFlag.AlignTop)
-        self.status_layout.addWidget(status_sub_frame)
-        self.status_layout.addStretch(stretch=1)
-
-        self.left_panel_layout.addWidget(self.logs_frame, 4)
-        self.left_panel_layout.addWidget(self.status_frame, 1)
+        self.left_panel_layout.addWidget(self.logs_frame)
 
         self.right_panel_frame = QFrame()
         self.right_panel_frame.setStyleSheet(PANEL_BORDER_STYLESHEET)
@@ -420,7 +427,7 @@ class CanteenWindow(QMainWindow):
         self.right_panel_layout.addLayout(hor_stretch_layout)
 
         main_layout.addLayout(self.left_panel_layout, 1)
-        main_layout.addWidget(self.right_panel_frame, 4)
+        main_layout.addWidget(self.right_panel_frame, 8)
 
         outer_layout.addWidget(top_panel_frame, 1)
         outer_layout.addLayout(main_layout, 9)
@@ -505,22 +512,22 @@ class CanteenWindow(QMainWindow):
         log.setWordWrap(True)
         log.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.__last_log_color_idx = (self.__last_log_color_idx+1)%len(self.LOG_COLORS)
-        log.setStyleSheet(f"background-color: {self.LOG_COLORS[self.__last_log_color_idx]};")
+        log.setStyleSheet(f"background-color: {self.LOG_COLORS[self.__last_log_color_idx]}; font-size: 8px;")
         self.logs_sub_layout.insertWidget(0, log)
     
     def show_token_status_success(self, data: tuple):
         self.scanner_status_btn.setText(self.SCANNER_STATUS_TEXTS[0])
         self.switch_window(0)
-        self.__active_windows[0].setValue(*data)
+        self.__active_windows[0].setValue(*data[:-1])
         self.state_timer.timeout.connect(lambda: self.switch_window(3))
         self.state_timer.start(self.DISPLAY_TIMEOUT)
 
-        token_number, name, _, pref = data
+        token_number, name, _, pref, meal_type = data
         current_datetime = UtilityFunctions.get_current_ist_datetime()
         scan_date = current_datetime.strftime("%Y-%m-%d")
         scan_time = current_datetime.strftime("%H:%M:%S")
         self.append_scan_logs(token_number, name, pref, scan_date, scan_time)
-        self.cache_manager.add_scan(token_number, scan_date, scan_time)
+        self.cache_manager.add_online_scan(token_number, scan_date, scan_time, meal_type)
     
     def show_token_status_failure(self, err: str):
         self.scanner_status_btn.setText(self.SCANNER_STATUS_TEXTS[0])

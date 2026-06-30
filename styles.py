@@ -245,7 +245,7 @@ SMALL_HEADING_STYLESHEET = """
     QLabel {
         margin: 0px;
         color: #7F2020;
-        font-size: 18px;;
+        font-size: 12px;;
         font-weight: 600;
     }
 """
@@ -322,11 +322,181 @@ MANUAL_ENTRY_STYLESHEET = """
     }
 """
 
+SCAN_ENTRY_STYLESHEET = """
+    QFrame {
+        background-color: rgb(254, 246, 238);
+    }
+
+    QLabel {
+        background-color: transparent;
+    }
+    
+    QLabel#heading {
+        color: #4D0000;
+        font-size: 30px;
+        font-weight: 600;
+    }
+"""
+
 HEADING_STYLESHEET = """
     QLabel {
         color: #4D0000;
         font-size: 30px;
         font-weight: 700;
         text-decoration: underline;
+    }
+"""
+
+SCANNER_CARD_STYLESHEET = """
+    QFrame {
+        background-color: #ffffff;
+        border-radius: 16px;
+        border: 1px solid #e0e0e0;
+    }
+    QLabel {
+        border: none; 
+    }
+"""
+
+LOGIN_SCREEN_OVERLAY_STYLESHEET = """
+    QFrame#DarkOverlay {
+        background-color: rgba(0, 0, 0, 180); /* Translucent shield */
+    }
+    QLabel {
+        background-color: transparent;
+        color: white;
+    }
+"""
+
+ROLE_TITLE_STYLESHEET = """
+    .QLabel {
+        font-family: monospace;
+        font-size: 30px;
+        font-weight: 500;
+        letter-spacing: 3px;
+        color: #ffffff;
+        text-decoration: underline;
+    }
+"""
+
+ROLE_BUTTON_STYLESHEET = """
+    QPushButton {
+        padding: 12px 8px;
+        border: 4px solid rgb(204, 64, 64);
+        border-radius: 24px;
+        background-color: rgb(204, 64, 64);
+        color: white;
+        font-family: "Source Sans", sans-serif;
+        font-size: 18px;
+    }
+    QPushButton:hover {
+        background-color: rgb(224, 84, 84);
+        border: 4px solid rgb(224, 84, 84);
+    }
+    QPushButton:pressed {
+        background-color: rgb(204, 64, 64);
+        border: 4px solid rgb(204, 64, 64);
+    }
+"""
+
+LOGIN_CARD_STYLESHEET = """
+    .QFrame {
+        background-color: rgba(255, 255, 255, 0.8);
+        border-radius: 25px;
+        padding: 25px;
+    }
+    QLabel {
+        color: #222222; /* Dark typography texts */
+        font-family: 'Segoe UI', Arial;
+        background-color: transparent;
+    }
+    QLabel#heading {
+        color: rgb(184, 34, 34);
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 50px;
+    }
+    QLineEdit {
+        background-color: #f0f2f5;
+        color: #111111;
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 14px;
+        margin-top: 10px;
+        margin-bottom: 30px;
+    }
+    QLineEdit:focus {
+        border: 1px solid #ff5722;
+        background-color: #ffffff;
+    }
+"""
+
+LOGIN_BUTTON_STYLESHEET = """
+    QPushButton {
+        padding: 8px;
+        border: 4px solid rgb(204, 64, 64);
+        border-radius: 20px;
+        background-color: rgb(204, 64, 64);
+        color: white;
+        font-family: "Source Sans", sans-serif;
+        font-size: 16px;
+    }
+    QPushButton:hover {
+        background-color: rgb(224, 84, 84);
+        border: 4px solid rgb(224, 84, 84);
+    }
+    QPushButton:pressed {
+        background-color: rgb(204, 64, 64);
+        border: 4px solid rgb(204, 64, 64);
+    }
+"""
+
+SMALL_BUTTON_STYLESHEET = """
+    QPushButton {
+        background-color: transparent;
+        font-size: 12px;
+        color: rgb(41, 54, 129);
+        text-decoration: underline;
+        letter-spacing: 1px;
+    }
+    QPushButton:hover {
+        font-weight: bold;
+    }
+    QPushButton:pressed {
+        color: rgb(66, 116, 217)
+    }
+"""
+
+SIGNUP_CARD_STYLESHEET = """
+    .QFrame {
+        background-color: rgba(255, 255, 255, 0.8);
+        border-radius: 25px;
+        padding: 25px;
+    }
+    QLabel {
+        color: #222222; /* Dark typography texts */
+        font-family: 'Segoe UI', Arial;
+        background-color: transparent;
+    }
+    QLabel#heading {
+        color: rgb(184, 34, 34);
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 20px;
+    }
+    QLineEdit {
+        background-color: #f0f2f5;
+        color: #111111;
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 14px;
+        margin-top: 10px;
+        margin-bottom: 30px;
+    }
+    QLineEdit:focus {
+        border: 1px solid #ff5722;
+        background-color: #ffffff;
     }
 """

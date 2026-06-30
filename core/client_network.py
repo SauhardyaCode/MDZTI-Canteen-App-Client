@@ -22,11 +22,12 @@ class ClientNetworkThread(QThread):
         self.action = action
         self.request_type = request_type
 
-        # JSON Payload allowed only for POST request and not GET
+        # Params Payload allowed only for GET request and not POST
         if self.request_type == "POST":
             self.payload = kwargs.get("json_data", kwargs or None)
         elif self.request_type == "GET":
-            self.payload = kwargs or None
+            self.json_data = kwargs.pop("json_data", None)
+            self.params = kwargs or None
 
         self.__SERVER_URL = os.getenv("SERVER_URL")
         self.__API_BASE_URL = f"{self.__SERVER_URL}/api"
@@ -40,9 +41,9 @@ class ClientNetworkThread(QThread):
             try:
                 endpoint = self.__API_BASE_URL + "/" + self.action
                 if self.request_type == "POST":
-                    response = requests.post(endpoint, headers=headers, json=self.payload, timeout=10.0)
+                    response = requests.post(endpoint, headers=headers, json=self.payload, timeout=20.0)
                 elif self.request_type == "GET":
-                    response = requests.get(endpoint, headers=headers, params=self.payload, timeout=10.0)
+                    response = requests.get(endpoint, headers=headers, params=self.params, json=self.json_data, timeout=20.0)
 
                 if response.status_code == 200:
                     self.operation_success.emit(self.action, response.json())
@@ -50,10 +51,10 @@ class ClientNetworkThread(QThread):
                     error_detail = response.json().get("detail", "Central Node server rejected access constraints.")
                     self.operation_failed.emit(self.action, f"[{response.status_code}] {error_detail}")
             except requests.exceptions.ConnectionError:
-                self.operation_failed.emit(self.action, "Connection Error: Client is offline.")
+                self.operation_failed.emit(self.action, "Connection Error: Client is offline. Please try again after a few seconds!")
                 self.client_offline.emit()
             except requests.exceptions.Timeout:
-                self.operation_failed.emit(self.action, "Network Timeout: Central Node server is taking too long to respond.")
+                self.operation_failed.emit(self.action, "Network Timeout: Server is taking too long to respond.")
                 self.run()
             except requests.exceptions.RequestException as e:
                 self.operation_failed.emit(self.action, f"Network Link Error: {str(e)}")
@@ -78,7 +79,10 @@ class ClientNetworkThread(QThread):
         self,
         success_coroutine: Callable[[str, Dict[str, Any]], None],
         failure_coroutine: Callable[[str, str], None],
+        connection_update_coroutine: Callable[[], None] = None
     ):
+        if connection_update_coroutine is not None:
+            self.client_offline.connect(connection_update_coroutine)
         self.operation_success.connect(success_coroutine)
         self.operation_failed.connect(failure_coroutine)
         self.start()
