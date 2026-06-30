@@ -500,3 +500,19 @@ SIGNUP_CARD_STYLESHEET = """
         background-color: #ffffff;
     }
 """
+
+HOME_RETURN_BUTTON_STYLESHEET = """
+    QPushButton {
+        margin: 10px;
+        padding: 5px;
+        border: 1px solid rgb(246, 36, 64);
+        background-color: rgb(255, 242, 219);
+        font-size: 14px;
+    }
+    QPushButton:hover {
+        background-color: rgb(255, 229, 191);
+    }
+    QPushButton:pressed {
+        background-color: rgb(255, 209, 171);
+    }
+"""

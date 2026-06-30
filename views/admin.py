@@ -2,11 +2,12 @@ from __future__ import annotations
 from typing import Union, Dict, Any
 from PyQt6.QtCore import Qt, QDate, QTime, QRect
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent
+from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent, QCloseEvent
 
 import sys
 from core.client_network import ClientNetworkThread
 from core.utils import *
+from core.cache_manager import CacheManager
 from styles import *
 
 __all__ = ["AdminWindow"]
@@ -56,11 +57,13 @@ class _GenerationFrame(QWidget):
         self.generate_btn.clicked.connect(self.generate_new_token)
         self.generate_btn.setFixedWidth(200)
         self.generate_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.reprint_btn = QPushButton("Print Unassigned Tokens")
         self.reprint_btn.clicked.connect(self.reprint_available_tokens)
         self.reprint_btn.setFixedWidth(400)
         self.reprint_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
+        self.reprint_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(self.generate_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         button_layout.addWidget(self.reprint_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -254,17 +257,21 @@ class _AssignmentFrame(QWidget):
         self.start_inp.dateChanged.connect(lambda new_date: self.end_inp.setMinimumDate(new_date))
         self.start_inp.setDate(current_qdate)
         self.end_inp.setDate(current_qdate)
+        self.start_inp.calendarWidget().setGridVisible(True)
+        self.end_inp.calendarWidget().setGridVisible(True)
 
         button_layout = QHBoxLayout()
         reset_btn = QPushButton("Reset")
         reset_btn.setFixedWidth(200)
         reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         reset_btn.clicked.connect(self.perform_reset)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.assign_btn = QPushButton("Assign")
         self.assign_btn.setFixedWidth(200)
         self.assign_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.assign_btn.clicked.connect(self.assign_token_to_trainee)
+        self.assign_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(reset_btn)
         button_layout.addWidget(self.assign_btn)
@@ -412,6 +419,7 @@ class _UnassignmentFrame(QWidget):
         self.add_btn.setFixedWidth(100)
         self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
         self.add_btn.clicked.connect(self.add_trainee)
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         input_sub_layout.addWidget(trainee_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.trainee_inp, 0, 2)
@@ -422,14 +430,16 @@ class _UnassignmentFrame(QWidget):
         reset_btn.setFixedWidth(200)
         reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         reset_btn.clicked.connect(self.perform_reset)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.course_btn = QPushButton("Unassign")
-        self.course_btn.setFixedWidth(200)
-        self.course_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
-        self.course_btn.clicked.connect(self.unassign_tokens)
+        self.unassign_btn = QPushButton("Unassign")
+        self.unassign_btn.setFixedWidth(200)
+        self.unassign_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.unassign_btn.clicked.connect(self.unassign_tokens)
+        self.unassign_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(reset_btn)
-        button_layout.addWidget(self.course_btn)
+        button_layout.addWidget(self.unassign_btn)
 
         self.trainee_frame = QFrame()
         trainee_layout = QVBoxLayout(self.trainee_frame)
@@ -610,6 +620,7 @@ class _CourseIntervalUpdateFrame(QWidget):
         self.date_inp.setMinimumDate(current_qdate)
         self.date_inp.setDate(current_qdate)
         self.date_inp.setCalendarPopup(True)
+        self.date_inp.calendarWidget().setGridVisible(True)
 
         self.trainee_inp.addItem("Fetching Trainees...")
         self.trainee_inp.setEnabled(False)
@@ -617,6 +628,7 @@ class _CourseIntervalUpdateFrame(QWidget):
         self.add_btn.setFixedWidth(100)
         self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
         self.add_btn.clicked.connect(self.add_trainee)
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         input_sub_layout.addWidget(date_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.date_inp, 0, 2)
@@ -629,11 +641,13 @@ class _CourseIntervalUpdateFrame(QWidget):
         reset_btn.setFixedWidth(200)
         reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         reset_btn.clicked.connect(self.perform_reset)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.course_btn = QPushButton("Update")
         self.course_btn.setFixedWidth(200)
         self.course_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.course_btn.clicked.connect(self.update_course_interval)
+        self.course_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(reset_btn)
         button_layout.addWidget(self.course_btn)
@@ -841,6 +855,7 @@ class _SpecialConfigFrame(QWidget):
         self.add_btn.setFixedWidth(100)
         self.add_btn.setStyleSheet(ADD_BUTTON_STYLESHEET)
         self.add_btn.clicked.connect(self.add_trainee)
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         input_sub_layout.addWidget(date_label, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         input_sub_layout.addWidget(self.date_inp, 0, 2)
@@ -871,11 +886,13 @@ class _SpecialConfigFrame(QWidget):
         reset_btn.setFixedWidth(200)
         reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         reset_btn.clicked.connect(self.perform_reset)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.config_btn = QPushButton("Update")
         self.config_btn.setFixedWidth(200)
         self.config_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.config_btn.clicked.connect(self.set_special_config)
+        self.config_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(reset_btn)
         button_layout.addWidget(self.config_btn)
@@ -1125,11 +1142,13 @@ class _SettingsFrame(QWidget):
         reset_btn.setFixedWidth(200)
         reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         reset_btn.clicked.connect(self.perform_reset)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.set_btn = QPushButton("Update")
         self.set_btn.setFixedWidth(200)
         self.set_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.set_btn.clicked.connect(self.update_settings)
+        self.set_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(reset_btn)
         button_layout.addWidget(self.set_btn)
@@ -1271,11 +1290,13 @@ class _DestroyFrame(QWidget):
         self.reset_btn.setFixedWidth(200)
         self.reset_btn.setStyleSheet(RESET_BUTTON_STYLESHEET)
         self.reset_btn.hide()
+        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.multi_btn = QPushButton("Check Status")
         self.multi_btn.clicked.connect(self.handle_click)
         self.multi_btn.setFixedWidth(200)
         self.multi_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
+        self.multi_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         button_layout.addWidget(self.reset_btn)
         button_layout.addWidget(self.multi_btn)
@@ -1441,6 +1462,7 @@ class _PreferenceStatsFrame(QWidget):
         self.state_manager.scanned_meal_count_updated.connect(self.load_scanned_meal_count)
 
         self.main_layout = QVBoxLayout()
+        self.main_layout.setSpacing(50)
         self.setLayout(self.main_layout)
         self.__parent._window_frame.setStyleSheet(GENERATE_PANEL_STYLESHEET)
 
@@ -1449,6 +1471,7 @@ class _PreferenceStatsFrame(QWidget):
 
         total_frame = QFrame()
         total_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET)
+        total_frame.setFixedWidth(700)
         total_layout = QVBoxLayout(total_frame)
         total_label = QLabel("<b>Total Meal Coupons Active Today</b>")
         total_label.setStyleSheet("font-size: 20px;")
@@ -1484,6 +1507,7 @@ class _PreferenceStatsFrame(QWidget):
 
         scanned_frame = QFrame()
         scanned_frame.setStyleSheet(ASSIGNMENT_PANEL_SUBFRAME_STYLESHEET)
+        scanned_frame.setFixedWidth(700)
         scanned_layout = QVBoxLayout(scanned_frame)
         scanned_label = QLabel("<b>Scanned Meal Coupons</b>")
         scanned_label.setStyleSheet("font-size: 20px;")
@@ -1493,10 +1517,13 @@ class _PreferenceStatsFrame(QWidget):
         scanned_input_layout = QVBoxLayout(scanned_input_frame)
 
         scanned_sub_input_layout = QGridLayout()
-        scanned_sub_input_layout.setVerticalSpacing(60)
+        scanned_sub_input_layout.setVerticalSpacing(30)
         scanned_sub_input_layout.setHorizontalSpacing(30)
         scanned_sub_input_layout.setColumnMinimumWidth(2, 100)
         scanned_sub_input_layout.setColumnMinimumWidth(3, 100)
+        scanned_sub_input_layout.setRowMinimumHeight(2, 30)
+        scanned_sub_input_layout.setRowMinimumHeight(5, 30)
+        scanned_sub_input_layout.setRowMinimumHeight(8, 30)
 
         scanned_breakfast_label = QLabel("<u><b>Breakfast</b></u>")
         scanned_bf_veg_label = QLabel("<u><b>VEG:</b></u>")
@@ -1538,32 +1565,34 @@ class _PreferenceStatsFrame(QWidget):
         self.scanned_date_inp = QDateEdit()
         self.scanned_date_inp.setMaximumDate(QDate.currentDate())
         self.scanned_date_inp.setCalendarPopup(True)
+        self.scanned_date_inp.calendarWidget().setGridVisible(True)
         self.scanned_date_inp.setDate(QDate.currentDate())
 
-        scanned_sub_input_layout.addWidget(scanned_breakfast_label, 0, 0)
+        scanned_sub_input_layout.addWidget(scanned_breakfast_label, 0, 0, 1, 2)
         scanned_sub_input_layout.addWidget(scanned_bf_veg_label, 1, 0)
         scanned_sub_input_layout.addWidget(self.scanned_bf_veg_value, 1, 1)
-        scanned_sub_input_layout.addWidget(scanned_bf_non_veg_label, 1, 4)
-        scanned_sub_input_layout.addWidget(self.scanned_bf_non_veg_value, 1, 5)
+        scanned_sub_input_layout.addWidget(scanned_bf_non_veg_label, 1, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_bf_non_veg_value, 1, 4)
 
-        scanned_sub_input_layout.addWidget(scanned_lunch_label, 2, 0)
-        scanned_sub_input_layout.addWidget(scanned_ln_veg_label, 3, 0)
-        scanned_sub_input_layout.addWidget(self.scanned_ln_veg_value, 3, 1)
-        scanned_sub_input_layout.addWidget(scanned_ln_non_veg_label, 3, 4)
-        scanned_sub_input_layout.addWidget(self.scanned_ln_non_veg_value, 3, 5)
+        scanned_sub_input_layout.addWidget(scanned_lunch_label, 3, 0, 1, 2)
+        scanned_sub_input_layout.addWidget(scanned_ln_veg_label, 4, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_ln_veg_value, 4, 1)
+        scanned_sub_input_layout.addWidget(scanned_ln_non_veg_label, 4, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_ln_non_veg_value, 4, 4)
 
-        scanned_sub_input_layout.addWidget(scanned_dinner_label, 4, 0)
-        scanned_sub_input_layout.addWidget(scanned_dn_veg_label, 5, 0)
-        scanned_sub_input_layout.addWidget(self.scanned_dn_veg_value, 5, 1)
-        scanned_sub_input_layout.addWidget(scanned_dn_non_veg_label, 5, 4)
-        scanned_sub_input_layout.addWidget(self.scanned_dn_non_veg_value, 5, 5)
+        scanned_sub_input_layout.addWidget(scanned_dinner_label, 6, 0, 1, 2)
+        scanned_sub_input_layout.addWidget(scanned_dn_veg_label, 7, 0)
+        scanned_sub_input_layout.addWidget(self.scanned_dn_veg_value, 7, 1)
+        scanned_sub_input_layout.addWidget(scanned_dn_non_veg_label, 7, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_dn_non_veg_value, 7, 4)
 
-        scanned_sub_input_layout.addWidget(scanned_date_label, 6, 0, 1, 3)
-        scanned_sub_input_layout.addWidget(self.scanned_date_inp, 6, 3, 1, 2)
+        scanned_sub_input_layout.addWidget(scanned_date_label, 9, 0, 1, 3)
+        scanned_sub_input_layout.addWidget(self.scanned_date_inp, 9, 3, 1, 2)
 
         self.scanned_check_btn = QPushButton("Check Count")
         self.scanned_check_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.scanned_check_btn.clicked.connect(self.check_scanned_status)
+        self.scanned_check_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
         scanned_input_layout.addLayout(scanned_sub_input_layout)
         scanned_input_layout.addWidget(self.scanned_check_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -1645,6 +1674,7 @@ class _PreferenceStatsFrame(QWidget):
 class AdminWindow(QMainWindow):
     def __init__(self, geometry: QRect) -> None:
         super().__init__()
+        self.__cache_manager = CacheManager()
         self.__WINDOWS = (
             _PreferenceStatsFrame, _AssignmentFrame, _CourseIntervalUpdateFrame,
             _SpecialConfigFrame, _SettingsFrame, _GenerationFrame,
@@ -1689,6 +1719,11 @@ class AdminWindow(QMainWindow):
         generate_tab_switch_btn = QPushButton("Generate New QR Tokens")
         unassign_tab_switch_btn = QPushButton("Take Back Tokens")
         destroy_tab_switch_btn = QPushButton("Destroy Wasted QR Tokens")
+
+        log_out_btn = QPushButton("Log Out")
+        log_out_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        log_out_btn.clicked.connect(self.log_out)
+
         self.__window_switch_buttons = (
             preference_tab_switch_btn, assign_tab_switch_btn, course_tab_switch_btn,
             special_tab_switch_btn, settings_tab_switch_btn, generate_tab_switch_btn,
@@ -1696,9 +1731,11 @@ class AdminWindow(QMainWindow):
         )
 
         for i, btn in enumerate(self.__window_switch_buttons):
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda checked, idx=i: self.__switch_window(idx))
             left_panel_layout.addWidget(btn)
-
+        
+        left_panel_layout.addWidget(log_out_btn)
         left_panel_layout.addStretch(1)
         left_panel_layout.setSpacing(0)
         left_panel_layout.setContentsMargins(0,0,0,0)
@@ -1719,6 +1756,10 @@ class AdminWindow(QMainWindow):
         outer_layout.addLayout(main_layout, 9)
 
         self.__switch_window(0)
+    
+    def closeEvent(self, event: QCloseEvent):
+        self.__cache_manager.remove_user("system admin")
+        super().closeEvent(event)
 
     def __switch_window(self, window_sl_no: int) -> None:
         if (self.__current_window != window_sl_no):
@@ -1737,6 +1778,28 @@ class AdminWindow(QMainWindow):
                     self.__window_switch_buttons[i].setStyleSheet(SIDE_PANEL_STYLESHEET)
             self.__active_windows[window_sl_no].show()
             self.__window_switch_buttons[window_sl_no].setStyleSheet(SIDE_PANEL_STYLESHEET + SELECTED_WINDOW_BUTTON_STYLESHEET)
+    
+    def log_out(self):
+        reply = QMessageBox.question(
+            None, "Log Out", "Are you sure you want to log out?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            QMessageBox.information(None, "Logged Out", "You have been logged out from System Admin!")
+            self.__cache_manager.remove_user("system admin")
+
+            isMaximized = self.isMaximized()
+            geometry = self.geometry()
+            self.destroy()
+
+            from app import LandingWindow
+            self.landing_window = LandingWindow(geometry)
+
+            if isMaximized:
+                self.landing_window.showMaximized()
+            else:
+                self.landing_window.show()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

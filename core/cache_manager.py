@@ -87,7 +87,8 @@ class CacheManager(QObject):
             cursor.execute('''CREATE TABLE IF NOT EXISTS login_info (
                                 role TEXT PRIMARY KEY,
                                 email TEXT,
-                                validity TEXT
+                                validity TEXT,
+                                CONSTRAINT unique_user UNIQUE (role, email)
                            )''')
 
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_qr_scans_composite
@@ -509,12 +510,24 @@ class CacheManager(QObject):
     def add_user(self, role: str, email: str):
         with self.get_connection() as cursor:
             validity = (UtilityFunctions.get_current_ist_datetime() + timedelta(days=1)).isoformat()
-            cursor.execute("INSERT INTO login_info (role, email, validity) VALUES (?, ?, ?)", (role, email, validity))
+            cursor.execute("""INSERT INTO login_info (role, email, validity)
+                                VALUES (?, ?, ?)
+                                ON CONFLICT (role, email)
+                                DO UPDATE SET validity = EXCLUDED.validity;
+                           """, (role, email, validity))
+    
+    def remove_user(self, role: str):
+        with self.get_connection() as cursor:
+            cursor.execute("DELETE FROM login_info WHERE role = ?", (role,))
     
     def check_login(self, role: str) -> bool:
         with self.get_connection() as cursor:
-            current_datetime = UtilityFunctions.get_current_ist_datetime().isoformat()
-            cursor.execute("SELECT 1 FROM login_info WHERE role = ? AND validity > ?", (role, current_datetime))
+            if role == "canteen supervisor":
+                cursor.execute("SELECT 1 FROM login_info WHERE role = ?", (role,))
+            else:
+                current_datetime = UtilityFunctions.get_current_ist_datetime().isoformat()
+                cursor.execute("SELECT 1 FROM login_info WHERE role = ? AND validity > ?", (role, current_datetime))
+                
             if cursor.fetchone():
                 return True
             else:

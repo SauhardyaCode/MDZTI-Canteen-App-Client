@@ -151,6 +151,7 @@ class ManualEntryFrame(QFrame):
         self.verify_btn = QPushButton("Verify")
         self.verify_btn.setStyleSheet(SUBMIT_BUTTON_STYLESHEET)
         self.verify_btn.setFixedWidth(200)
+        self.verify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.verify_btn.clicked.connect(self.verify_typed_token)
 
         main_layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop)
@@ -391,8 +392,13 @@ class CanteenWindow(QMainWindow):
         self.logs_layout.addWidget(logs_label, alignment=Qt.AlignmentFlag.AlignTop)
         self.logs_layout.addWidget(logs_scroll_area, stretch=4)
 
-        self.init_scan_logs()
+        self.log_out_btn = QPushButton("Log Out")
+        self.log_out_btn.setStyleSheet(HOME_RETURN_BUTTON_STYLESHEET)
+        self.log_out_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.log_out_btn.clicked.connect(self.log_out)
+
         self.left_panel_layout.addWidget(self.logs_frame)
+        self.left_panel_layout.addWidget(self.log_out_btn)
 
         self.right_panel_frame = QFrame()
         self.right_panel_frame.setStyleSheet(PANEL_BORDER_STYLESHEET)
@@ -413,6 +419,7 @@ class CanteenWindow(QMainWindow):
 
         self.scanner_status_btn = QPushButton(self.SCANNER_STATUS_TEXTS[0])
         self.scanner_status_btn.setStyleSheet("font-size: 14px; color: blue; text-decoration: underline; background-color: #dddddd;")
+        self.scanner_status_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.scanner_status_btn.clicked.connect(self.handle_scanner_status_click)
 
         self.right_panel_layout.addWidget(connection_status_frame, alignment=Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignTop)
@@ -433,6 +440,10 @@ class CanteenWindow(QMainWindow):
         outer_layout.addLayout(main_layout, 9)
 
         self.switch_window(3)
+    
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        self.init_scan_logs()
     
     def switch_window(self, window_sl_no: int):
         if (self.__current_window != window_sl_no):
@@ -458,6 +469,29 @@ class CanteenWindow(QMainWindow):
                 if self.__active_windows[i]:
                     self.__active_windows[i].hide()
             self.__active_windows[window_sl_no].show()
+    
+    def log_out(self):
+        reply = QMessageBox.question(
+            None, "Log Out", "Are you sure you want to log out?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            QMessageBox.information(None, "Logged Out", "You have been logged out from Canteen Supervisor!")
+            cache_manager = CacheManager()
+            cache_manager.remove_user("canteen supervisor")
+
+            isMaximized = self.isMaximized()
+            geometry = self.geometry()
+            self.destroy()
+
+            from app import LandingWindow
+            self.landing_window = LandingWindow(geometry)
+
+            if isMaximized:
+                self.landing_window.showMaximized()
+            else:
+                self.landing_window.show()
     
     def handle_network_ui_update(self, conn_status: str):
         if conn_status == "online":

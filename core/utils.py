@@ -53,6 +53,8 @@ API_ENDPOINTS = {
     "fetch-scanned-meal-preferences-count": "get-scanned-meal-data",
     "add-new-user-role": "add-user",
     "verify-user-by-role": "verify-user",
+    "verify-user-email-for-forget-password": "verify-user-email",
+    "change-user-password-by-role": "change-user-password",
     "configure-settings-key-value-pairs": "configure-settings",
     "generate-new-physical-qr-token": "generate-new-token",
     "assign-existing-token-to-trainee": "assign-token",
