@@ -1,6 +1,6 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timedelta, timezone
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer, QThread
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -35,7 +35,7 @@ __all__ = [
     "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
     "UtilityFunctions", "AppStateManager",
     "ToggleSwitch", "SingleLineEdit", "LoadingOverlay",
-    "ClickableColorCalendar", "DaySelectionMapping"
+    "ClickableColorCalendar", "DaySelectionMapping", "OTPSenderThread"
 ]
 
 POST = "POST"
@@ -249,6 +249,31 @@ Developer, Canteen Management App"""
             print(f"Failed to send email. Error: {e}")
             return None
 
+class OTPSenderThread(QThread):
+    otp_sent = pyqtSignal(str)  # Emits str (otp_code) or None if it fails
+    otp_not_sent = pyqtSignal(str)
+
+    def __init__(self, parent: QObject, email: str, role: str) -> None:
+        super().__init__(parent)
+        self.email = email
+        self.role = role
+        self.finished.connect(self.deleteLater)
+
+    def run(self) -> None:
+        otp_code = UtilityFunctions.send_otp_email(self.email, self.role)
+        if otp_code is not None:
+            self.otp_sent.emit(otp_code)
+        else:
+            self.otp_not_sent.emit("OTP couldn't be sent. Please verify your email or try again later!")
+    
+    def bind_and_start(
+        self,
+        success_coroutine: Callable[[str], None],
+        failure_coroutine: Callable[[str], None],
+    ):
+        self.otp_sent.connect(success_coroutine)
+        self.otp_not_sent.connect(failure_coroutine)
+        self.start()
 
 class ToggleSwitch(QAbstractButton):
     def __init__(self, parent=None):
@@ -316,6 +341,9 @@ class ToggleSwitch(QAbstractButton):
         self.anim.start()
 
 class SingleLineEdit(QPlainTextEdit):
+    returnPressed = pyqtSignal()
+    tabPresssed = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.document().setMaximumBlockCount(1)
@@ -327,12 +355,10 @@ class SingleLineEdit(QPlainTextEdit):
     
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.returnPressed.emit()
             event.accept()
         elif event.key() == Qt.Key.Key_Tab:
-            self.focusNextChild()
-            event.accept()
-        elif event.key() == Qt.Key.Key_Backtab:
-            self.focusPreviousChild()
+            self.tabPresssed.emit()
             event.accept()
         else:
             super().keyPressEvent(event)

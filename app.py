@@ -6,9 +6,10 @@ from PyQt6.QtCore import QPropertyAnimation, QPoint, QEasingCurve, QTimer, Qt, Q
 from PyQt6.QtGui import QShowEvent, QRegularExpressionValidator, QIntValidator, QKeyEvent, QResizeEvent
 from PyQt6.QtWidgets import *
 from styles import *
-from core.utils import API_ENDPOINTS, POST, GET, UtilityFunctions, LoadingOverlay
+from core.utils import API_ENDPOINTS, POST, GET, UtilityFunctions, LoadingOverlay, OTPSenderThread
 from core.client_network import ClientNetworkThread
 from core.password_hasher import PasswordHasher
+from core.cache_manager import CacheManager
 from views.admin import AdminWindow
 from views.canteen import CanteenWindow
 
@@ -98,6 +99,7 @@ class RoleChoiceFrame(QFrame):
         super().__init__()
         self.__parent = parent
         self.setStyleSheet("background-color: transparent;")
+        self.__cache_manager = self.__parent.cache_manager
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -130,10 +132,16 @@ class RoleChoiceFrame(QFrame):
         main_layout.addStretch(stretch=1)
     
     def handle_admin_click(self):
-        self.__parent.switch_window(1)
+        if self.__cache_manager.check_login("system admin"):
+            self.__parent.render_authorized_window("system admin")
+        else:
+            self.__parent.switch_window(1)
 
     def handle_canteen_click(self):
-        self.__parent.switch_window(2)
+        if self.__cache_manager.check_login("canteen supervisor"):
+            self.__parent.render_authorized_window("canteen supervisor")
+        else:
+            self.__parent.switch_window(2)
 
 class LoginFrame(QFrame):
     def __init__(self, parent: LandingWindow, role: str):
@@ -142,6 +150,8 @@ class LoginFrame(QFrame):
         self.role = role
         self.setStyleSheet("background-color: transparent;")
         self.loading_overlay = LoadingOverlay(self, "Logging in...")
+
+        self.__cache_manager = self.__parent.cache_manager
         role = role.split()[-1]
 
         main_layout = QVBoxLayout(self)
@@ -236,18 +246,8 @@ class LoginFrame(QFrame):
         def on_success(action: str, data: dict):
             print(f"Success caught for action: {action}")
             self.loading_overlay.hide()
-            isMaximized = self.__parent.isMaximized()
-            geometry = self.__parent.geometry()
-            self.__parent.destroy()
-            if self.role == "system admin":
-                authorized_window = self.__parent.admin_window(geometry)
-            else:
-                authorized_window = self.__parent.supervisor_window(geometry)
-
-            if isMaximized:
-                authorized_window.showMaximized()
-            else:
-                authorized_window.show()
+            self.__cache_manager.add_user(data.get("role"), data.get("email"))
+            self.__parent.render_authorized_window(self.role)
         
         def on_failure(action: str, error_msg: str):
             self.loading_overlay.hide()
@@ -271,7 +271,8 @@ class SignupFrame(QFrame):
         self.__parent = parent
         self.role = role
         self.setStyleSheet("background-color: transparent;")
-        self.loading_overlay = LoadingOverlay(self, "Signing up...")
+        self.loading_overlay_otp = LoadingOverlay(self, "Sending OTP...")
+        self.loading_overlay_signup = LoadingOverlay(self, "Signing up...")
 
         self.email = None
         self.username = None
@@ -358,11 +359,11 @@ class SignupFrame(QFrame):
         already_created_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         already_created_btn.clicked.connect(self.handle_already_created)
 
-        get_otp_btn = QPushButton("Get OTP")
-        get_otp_btn.setStyleSheet(LOGIN_BUTTON_STYLESHEET)
-        get_otp_btn.setFixedWidth(200)
-        get_otp_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        get_otp_btn.clicked.connect(self.handle_get_otp)
+        self.get_otp_btn = QPushButton("Get OTP")
+        self.get_otp_btn.setStyleSheet(LOGIN_BUTTON_STYLESHEET)
+        self.get_otp_btn.setFixedWidth(200)
+        self.get_otp_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.get_otp_btn.clicked.connect(self.handle_get_otp)
 
         info_layout.addWidget(email_label)
         info_layout.addWidget(self.email_inp)
@@ -370,7 +371,7 @@ class SignupFrame(QFrame):
         info_layout.addLayout(password_layout)
         info_layout.addWidget(already_created_btn, alignment=Qt.AlignmentFlag.AlignRight)
         info_layout.addStretch(stretch=1)
-        info_layout.addWidget(get_otp_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        info_layout.addWidget(self.get_otp_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         info_layout.addStretch(stretch=1)
 
         self.otp_frame = QFrame()
@@ -395,8 +396,6 @@ class SignupFrame(QFrame):
             if self.otp_inputs[current].hasAcceptableInput() and len(text) == 1:
                 if current+1 < len(self.otp_inputs):
                     self.otp_inputs[current+1].setFocus()
-                else:
-                    self.otp_inputs[current].clearFocus()
         
         def clear_prev(current: int):
             if current-1 >= 0:
@@ -409,6 +408,7 @@ class SignupFrame(QFrame):
             inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
             inp.textChanged.connect(lambda text, idx=i: input_next(text, idx))
             inp.backspace_pressed.connect(lambda idx=i: clear_prev(idx))
+            inp.returnPressed.connect(self.handle_signup)
             otp_inp_layout.addWidget(inp)
 
         self.resend_otp_btn = QPushButton("Resend OTP?")
@@ -454,7 +454,8 @@ class SignupFrame(QFrame):
     
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
-        self.loading_overlay.setGeometry(self.rect())
+        self.loading_overlay_otp.setGeometry(self.rect())
+        self.loading_overlay_signup.setGeometry(self.rect())
     
     def clear_inputs(self):
         for inp in self.otp_inputs:
@@ -465,16 +466,26 @@ class SignupFrame(QFrame):
         self.password_inp.clear()
         self.cnf_password_inp.clear()
     
-    def send_new_otp(self) -> bool:
+    def send_new_otp(self):
         self.clear_inputs()
         self.resend_otp_btn.setEnabled(False)
         self.retries = 0
-        self.otp_code = UtilityFunctions.send_otp_email(self.email, self.role)
-        if self.otp_code is None:
-            QMessageBox.warning(None, "OTP Not Sent", "OTP couldn't be sent. Please verify your email or try again later!")
-            return False
-        self.expiry_time = UtilityFunctions.get_current_ist_datetime() + timedelta(seconds=(5*60))
-        return True
+
+        self.loading_overlay_otp.show()
+        self.loading_overlay_otp.setFocus()
+        self.otp_worker = OTPSenderThread(self, self.email, self.role)
+
+        def on_success(otp_code: str):
+            self.loading_overlay_otp.hide()
+            self.otp_code = otp_code
+            self.expiry_time = UtilityFunctions.get_current_ist_datetime() + timedelta(seconds=(5*60))
+            self.screen_stack.setCurrentIndex(1)
+
+        def on_failure(err_msg: str):
+            self.loading_overlay_otp.hide()
+            QMessageBox.warning(None, "OTP Not Sent", err_msg)
+
+        self.otp_worker.bind_and_start(on_success, on_failure)
     
     def handle_get_otp(self):
         self.email = self.email_inp.text().strip()
@@ -494,8 +505,7 @@ class SignupFrame(QFrame):
         elif self.password != cnf_password:
             QMessageBox.warning(None, "Invalid Input", "Passwords do not match. Please try again!")
         else:
-            if self.send_new_otp():
-                self.screen_stack.setCurrentIndex(1)
+            self.send_new_otp()
     
     def handle_signup(self):
         otp_code = ""
@@ -516,7 +526,7 @@ class SignupFrame(QFrame):
                 QMessageBox.warning(None, "Invalid OTP", "The OTP provided is wrong. Please verify!")
                 self.retries += 1
             else:
-                self.loading_overlay.show()
+                self.loading_overlay_signup.show()
                 hasher = PasswordHasher()
                 password_hash = hasher.create_hash(self.password)
                 worker = ClientNetworkThread(
@@ -526,7 +536,7 @@ class SignupFrame(QFrame):
 
                 def on_success(action: str, data: dict):
                     print(f"Success caught for action: {action}")
-                    self.loading_overlay.hide()
+                    self.loading_overlay_signup.hide()
                     QMessageBox.information(
                         None, "Signup Success",
                         f"Hooray! Your email has been verified. You are the {data.get("role")} now!"
@@ -536,7 +546,7 @@ class SignupFrame(QFrame):
                     self.__parent.switch_window(1)
                 
                 def on_failure(action: str, error_msg: str):
-                    self.loading_overlay.hide()
+                    self.loading_overlay_signup.hide()
                     UtilityFunctions.api_failure_coroutine(action, error_msg)
                     QMessageBox.warning(None, "Cannot signup", error_msg)
 
@@ -573,6 +583,7 @@ class LandingWindow(QMainWindow):
         self.__active_windows = [None for _ in range(len(self.__WINDOWS))]
         self.admin_window = AdminWindow
         self.supervisor_window = CanteenWindow
+        self.cache_manager = CacheManager()
 
         screen = QApplication.primaryScreen().geometry()
         screen_width = screen.width()
@@ -654,6 +665,20 @@ class LandingWindow(QMainWindow):
                 if self.__active_windows[i]:
                     self.__active_windows[i].hide()
             self.__active_windows[window_sl_no].show()
+    
+    def render_authorized_window(self, role):
+        isMaximized = self.isMaximized()
+        geometry = self.geometry()
+        self.destroy()
+        if role == "system admin":
+            self.authorized_window = self.admin_window(geometry)
+        else:
+            self.authorized_window = self.supervisor_window(geometry)
+
+        if isMaximized:
+            self.authorized_window.showMaximized()
+        else:
+            self.authorized_window.show()
 
 
 if __name__ == "__main__":

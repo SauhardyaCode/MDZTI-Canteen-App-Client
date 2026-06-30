@@ -86,4 +86,3 @@ class ClientNetworkThread(QThread):
         self.operation_success.connect(success_coroutine)
         self.operation_failed.connect(failure_coroutine)
         self.start()
-        self.finished.connect(self.deleteLater)

@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, Union
 import sqlite3
 from PyQt6.QtCore import QTimer, pyqtSignal, QObject
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 from core.utils import API_ENDPOINTS, POST, UtilityFunctions
@@ -84,9 +84,16 @@ class CacheManager(QObject):
                                 FOREIGN KEY (assignment_id) REFERENCES active_trainees (assignment_id)
                         )''')
             
+            cursor.execute('''CREATE TABLE IF NOT EXISTS login_info (
+                                role TEXT PRIMARY KEY,
+                                email TEXT,
+                                validity TEXT
+                           )''')
+
             cursor.execute('''CREATE INDEX IF NOT EXISTS idx_qr_scans_composite
                                 ON qr_scans (assignment_id, scan_date, scan_time, meal_type)
                            ''')
+            
 
             cursor.execute("SELECT value from settings WHERE key = 'last_sync_time'")
             res = cursor.fetchone()
@@ -498,3 +505,17 @@ class CacheManager(QObject):
                 token_id = res[0]
             
             return self.verify_token_and_supply_data(cursor, token_id=token_id, token_number=token_number)
+    
+    def add_user(self, role: str, email: str):
+        with self.get_connection() as cursor:
+            validity = (UtilityFunctions.get_current_ist_datetime() + timedelta(days=1)).isoformat()
+            cursor.execute("INSERT INTO login_info (role, email, validity) VALUES (?, ?, ?)", (role, email, validity))
+    
+    def check_login(self, role: str) -> bool:
+        with self.get_connection() as cursor:
+            current_datetime = UtilityFunctions.get_current_ist_datetime().isoformat()
+            cursor.execute("SELECT 1 FROM login_info WHERE role = ? AND validity > ?", (role, current_datetime))
+            if cursor.fetchone():
+                return True
+            else:
+                return False

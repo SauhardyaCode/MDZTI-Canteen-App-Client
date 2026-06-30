@@ -43,6 +43,7 @@ class _GenerationFrame(QWidget):
         self.input_field.setValidator(QIntValidator(1, 1000000))
         self.input_field.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.input_field.setMaximumWidth(150)
+        self.input_field.returnPressed.connect(self.generate_new_token)
 
         input_sub_layout.addStretch()
         input_sub_layout.addWidget(input_label, 0)
@@ -93,6 +94,7 @@ class _GenerationFrame(QWidget):
     
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        self.input_field.setFocus()
 
         # ensure fresh data for those keys that are needed to update UI
         self.state_manager.ensure_fresh_data("token_stats")
@@ -240,6 +242,11 @@ class _AssignmentFrame(QWidget):
         self.pref_inp.addItem("- Select -", "select")
         self.pref_inp.addItems(("VEG", "NON-VEG"))
 
+        self.name_inp.returnPressed.connect(self.assign_token_to_trainee)
+        self.name_inp.tabPresssed.connect(self.desg_inp.setFocus)
+        self.desg_inp.returnPressed.connect(self.assign_token_to_trainee)
+        self.desg_inp.tabPresssed.connect(self.start_inp.setFocus)
+
         current_qdate = QDate.currentDate()
         self.start_inp.setCalendarPopup(True)
         self.end_inp.setCalendarPopup(True)
@@ -288,6 +295,7 @@ class _AssignmentFrame(QWidget):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        self.name_inp.setFocus()
         self.state_manager.ensure_fresh_data("tokens_by_status")
 
     def load_tokens_by_status(self, data):
@@ -455,6 +463,7 @@ class _UnassignmentFrame(QWidget):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        self.trainee_inp.setFocus()
         self.state_manager.ensure_fresh_data("active_trainees")
     
     def load_active_trainees(self, data):
@@ -661,6 +670,7 @@ class _CourseIntervalUpdateFrame(QWidget):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        self.date_inp.setFocus()
         self.state_manager.ensure_fresh_data("active_trainees")
     
     def load_active_trainees(self, data):
@@ -1244,9 +1254,11 @@ class _DestroyFrame(QWidget):
         self.token_inp.setValidator(QIntValidator(1, 100000))
         self.token_inp.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.token_inp.setMaximumWidth(150)
+        self.token_inp.returnPressed.connect(self.handle_click)
         self.replace_inp.setValidator(QIntValidator(1, 100000))
         self.replace_inp.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.replace_inp.setMaximumWidth(150)
+        self.replace_inp.returnPressed.connect(self.handle_click)
 
         input_sub_layout.addWidget(token_label, 0, 0)
         input_sub_layout.addWidget(self.token_inp, 0, 2)
@@ -1297,6 +1309,7 @@ class _DestroyFrame(QWidget):
     
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        self.token_inp.setFocus()
         self.state_manager.ensure_fresh_data("token_stats")
     
     def destroy_layout_children(self, layout: Union[QHBoxLayout, QVBoxLayout, QGridLayout]):
