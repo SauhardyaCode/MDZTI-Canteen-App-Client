@@ -1,3 +1,5 @@
+"""RAW CSS STYLESHEETS"""
+
 ROOT_STYLESHEET = """
     QWidget {
         background-color: white;

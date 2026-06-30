@@ -1,18 +1,8 @@
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timedelta, timezone
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer, QThread
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer, QThread, QPoint, QEasingCurve
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
-from PyQt6.QtWidgets import (
-    QAbstractButton,
-    QLabel,
-    QPlainTextEdit,
-    QVBoxLayout,
-    QWidget,
-    QCalendarWidget,
-    QPushButton,
-    QHBoxLayout,
-    QFileDialog
-)
+from PyQt6.QtWidgets import *
 
 import os
 from dotenv import load_dotenv
@@ -33,9 +23,9 @@ load_dotenv()
 
 __all__ = [
     "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
-    "UtilityFunctions", "AppStateManager",
-    "ToggleSwitch", "SingleLineEdit", "LoadingOverlay",
-    "ClickableColorCalendar", "DaySelectionMapping", "OTPSenderThread"
+    "UtilityFunctions", "AppStateManager", "OTPSenderThread",
+    "ToggleSwitch", "SingleLineEdit", "LoadingOverlay", "SlidingBackgroundFrame",
+    "ClickableColorCalendar", "DaySelectionMapping", "OTPInput"
 ]
 
 POST = "POST"
@@ -276,6 +266,87 @@ class OTPSenderThread(QThread):
         self.otp_sent.connect(success_coroutine)
         self.otp_not_sent.connect(failure_coroutine)
         self.start()
+
+class SlidingBackgroundFrame(QFrame):
+    def __init__(self, img1_path, img2_path, change_interval=5000, parent=None):
+        super().__init__(parent)
+        
+        # Save file paths to cycle through them
+        self.images = [img1_path, img2_path]
+        self.current_idx = 0
+        
+        # Giant canvas to hold current and incoming images side-by-side
+        self.canvas = QWidget(self)
+        
+        # Create two placeholder frames inside the canvas
+        self.bg_left = QFrame(self.canvas)
+        self.bg_right = QFrame(self.canvas)
+        
+        self.update_image_styles()
+
+        # Timer to trigger the slide
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.slide_left)
+        self.timer.start(change_interval)
+
+    def update_image_styles(self):
+        """Applies the background images based on the current index tracker."""
+        img1 = self.images[self.current_idx]
+        img2 = self.images[(self.current_idx + 1) % len(self.images)]
+        
+        self.bg_left.setStyleSheet(f"border-image: url('{img1}') 0 0 0 0 stretch stretch;")
+        self.bg_right.setStyleSheet(f"border-image: url('{img2}') 0 0 0 0 stretch stretch;")
+
+    def resizeEvent(self, event):
+        """Dynamically ensures elements match window size on resize."""
+        w = self.width()
+        h = self.height()
+        
+        self.canvas.resize(w * 2, h)
+        self.bg_left.setGeometry(0, 0, w, h)
+        self.bg_right.setGeometry(w, 0, w, h)
+        self.canvas.move(0, 0)
+        
+        super().resizeEvent(event)
+
+    def slide_left(self):
+        w = self.width()
+        
+        # Configure the slide animation moving left (-w)
+        self.anim = QPropertyAnimation(self.canvas, b"pos")
+        self.anim.setDuration(1200) # 1.2 seconds slide transition
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        
+        self.anim.setStartValue(QPoint(0, 0))
+        self.anim.setEndValue(QPoint(-w, 0))
+        
+        # Crucial: When the slide ends, snap positions back seamlessly
+        self.anim.finished.connect(self.on_animation_finished)
+        self.anim.start()
+
+    def on_animation_finished(self):
+        # 1. Disconnect the signal to prevent compounding triggers
+        self.anim.finished.disconnect()
+        
+        # 2. Increment image tracker pointer index
+        self.current_idx = (self.current_idx + 1) % len(self.images)
+        
+        # 3. Update the sheets so the new background is now set to bg_left
+        self.update_image_styles()
+        
+        # 4. Instant stealth teleportation back to the origin coordinates
+        self.canvas.move(0, 0)
+
+class OTPInput(QLineEdit):
+    backspace_pressed = pyqtSignal()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        valid_keys = [ Qt.Key.Key_0, Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4, Qt.Key.Key_5, Qt.Key.Key_6, Qt.Key.Key_7, Qt.Key.Key_8, Qt.Key.Key_9]
+        if event.key() == Qt.Key.Key_Backspace:
+            self.backspace_pressed.emit()
+        elif event.key() in valid_keys:
+            self.clear()
+        super().keyPressEvent(event)
 
 class ToggleSwitch(QAbstractButton):
     def __init__(self, parent=None):
