@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, Any
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRect
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIntValidator, QShowEvent, QPixmap, QResizeEvent
+from PyQt6.QtGui import QIntValidator, QShowEvent, QPixmap, QResizeEvent, QIcon
 from datetime import datetime
 
 import sys
@@ -18,9 +18,9 @@ class SuccessStatusFrame(QFrame):
         self.__parent = parent
         self.setStyleSheet("background-color: transparent;")
         size = 50
-        self.veg_logo = QPixmap("assets/veg-logo.png")
+        self.veg_logo = QPixmap(UtilityFunctions.resource_path("assets/veg-logo.png"))
         self.veg_logo = self.veg_logo.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.non_veg_logo = QPixmap("assets/non-veg-logo.png")
+        self.non_veg_logo = QPixmap(UtilityFunctions.resource_path("assets/non-veg-logo.png"))
         self.non_veg_logo = self.non_veg_logo.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         
         main_layout = QVBoxLayout(self)
@@ -235,7 +235,7 @@ class AutomaticScannerFrame(QFrame):
         
         # 2. ADD A SCANNER ICON
         icon_label = QLabel()
-        pixmap = QPixmap("assets/scanner_placeholder.png").scaled(300, 180, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        pixmap = QPixmap(UtilityFunctions.resource_path("assets/scanner_placeholder.png")).scaled(300, 180, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         icon_label.setPixmap(pixmap)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -318,9 +318,9 @@ class AutomaticScannerFrame(QFrame):
 class CanteenWindow(QMainWindow):
     def __init__(self, geometry: QRect) -> None:
         super().__init__()
-        self.online_icon = QPixmap("assets/connected.png")
+        self.online_icon = QPixmap(UtilityFunctions.resource_path("assets/connected.png"))
         self.online_icon = self.online_icon.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.offline_icon = QPixmap("assets/disconnected.png")
+        self.offline_icon = QPixmap(UtilityFunctions.resource_path("assets/disconnected.png"))
         self.offline_icon = self.offline_icon.scaled(30, 30, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
         self.DISPLAY_TIMEOUT = 6000
@@ -346,6 +346,7 @@ class CanteenWindow(QMainWindow):
         screen_height = screen.height()
         self.setMinimumSize(screen_width-300, screen_height-200)
         self.setWindowTitle("Canteen Manager App (Canteen)")
+        self.setWindowIcon(QIcon(UtilityFunctions.resource_path("assets/desktop-icon.png")))
         self.setGeometry(geometry)
 
         main_central_widget = QWidget(self)

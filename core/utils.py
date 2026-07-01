@@ -1,11 +1,14 @@
+from __future__ import annotations
 from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import QRectF, QSize, Qt, pyqtProperty, QPropertyAnimation, QDate, pyqtSignal, QObject, QTimer, QThread, QPoint, QEasingCurve
 from PyQt6.QtGui import QColor, QKeyEvent, QMovie, QPainter, QTextCharFormat
 from PyQt6.QtWidgets import *
 
 import os
+import sys
 from dotenv import load_dotenv
+from datetime import datetime, timedelta, timezone
+
 import io
 import qrcode
 from reportlab.lib.pagesizes import inch
@@ -19,14 +22,25 @@ import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-load_dotenv()
-
 __all__ = [
     "POST", "GET", "WEEKDAYS", "WEEKDAYS_ABBR", "API_ENDPOINTS", "ALLOWED_CONFIG_KEYS",
-    "UtilityFunctions", "AppStateManager", "OTPSenderThread",
+    "UtilityFunctions", "AppStateManager", "OTPSenderThread", "load_local_env",
     "ToggleSwitch", "SingleLineEdit", "LoadingOverlay", "SlidingBackgroundFrame",
     "ClickableColorCalendar", "DaySelectionMapping", "OTPInput"
 ]
+
+def load_local_env():
+    if hasattr(sys, 'frozen'):
+        # Production: Look in the root installation folder right next to app.exe
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    else:
+        # Development: Look in your local script root
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+    env_path = os.path.join(base_dir, ".env")
+    load_dotenv(env_path)
+
+load_local_env()
 
 POST = "POST"
 GET = "GET"
@@ -60,6 +74,16 @@ API_ENDPOINTS = {
 ALLOWED_CONFIG_KEYS = ("breakfast_time_slot", "lunch_time_slot", "dinner_time_slot", "only_veg_days")
 
 class UtilityFunctions:
+    @staticmethod
+    def resource_path(relative_path):
+        """ Get absolute path to resource, works for dev and for PyInstaller """
+        try:
+            # PyInstaller creates a temp folder and stores path in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path).replace("\\", "/") # Qt needs forward slashes
+    
     @staticmethod
     def get_current_ist_datetime() -> datetime:
         aware_current_time_utc = datetime.now(timezone.utc)
@@ -272,7 +296,7 @@ class SlidingBackgroundFrame(QFrame):
         super().__init__(parent)
         
         # Save file paths to cycle through them
-        self.images = [img1_path, img2_path]
+        self.images = [UtilityFunctions.resource_path(img1_path), UtilityFunctions.resource_path(img2_path)]
         self.current_idx = 0
         
         # Giant canvas to hold current and incoming images side-by-side
@@ -451,7 +475,7 @@ class LoadingOverlay(QWidget):
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.spinner = QLabel()
-        self.movie = QMovie("assets/loader.gif")
+        self.movie = QMovie(UtilityFunctions.resource_path("assets/loader.gif"))
         self.movie.setScaledSize(QSize(100, 100))
         self.spinner.setMovie(self.movie)
         self.movie.start()

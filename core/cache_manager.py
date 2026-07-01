@@ -3,6 +3,8 @@ import sqlite3
 from PyQt6.QtCore import QTimer, pyqtSignal, QObject
 from datetime import datetime, timedelta
 from contextlib import contextmanager
+import os
+import sys
 
 from core.utils import API_ENDPOINTS, POST, UtilityFunctions
 from core.client_network import ClientNetworkThread
@@ -13,7 +15,15 @@ class CacheManager(QObject):
 
     def __init__(self):
         super().__init__()
-        self.__CACHE_PATH = "./local_cache.db"
+        if hasattr(sys, 'frozen'):
+            # Running as a compiled .exe (Store data inside Windows AppData directory)
+            base_dir = os.path.join(os.environ['LOCALAPPDATA'], 'MDZTICanteen')
+            os.makedirs(base_dir, exist_ok=True)
+        else:
+            # Running as raw script in development
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+        self.__CACHE_PATH = os.path.join(base_dir, "local_cache.db")
         self.__STATUSES = ("online", "offline", "server down")
         self.__status = 0
         self.last_sync = datetime.min.isoformat()

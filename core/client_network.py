@@ -1,14 +1,13 @@
 from typing import Callable, Dict, Any
 from PyQt6.QtCore import pyqtSignal, QThread, QObject
-from dotenv import load_dotenv
 import os
 import time
 import secrets
 import requests
 from core.password_hasher import PasswordHasher
-from core.utils import API_ENDPOINTS
+from core.utils import API_ENDPOINTS, load_local_env
 
-load_dotenv()
+load_local_env()
 
 class ClientNetworkThread(QThread):
     operation_success = pyqtSignal(str, dict) # action name, res_json

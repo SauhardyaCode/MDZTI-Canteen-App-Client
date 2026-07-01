@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Union, Dict, Any
 from PyQt6.QtCore import Qt, QDate, QTime, QRect
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent, QCloseEvent
+from PyQt6.QtGui import QIntValidator, QShowEvent, QHideEvent, QCloseEvent, QIcon
 
 import sys
 from core.client_network import ClientNetworkThread
@@ -1689,6 +1689,7 @@ class AdminWindow(QMainWindow):
         screen_height = screen.height()
         self.setMinimumSize(screen_width-300, screen_height-200)
         self.setWindowTitle("Canteen Manager App (Admin)")
+        self.setWindowIcon(QIcon(UtilityFunctions.resource_path("assets/desktop-icon.png")))
         self.setGeometry(geometry)
 
         main_central_widget = QWidget(self)

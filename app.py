@@ -4,7 +4,7 @@ import sys
 import re
 from datetime import timedelta
 from PyQt6.QtCore import Qt, QRegularExpression, QRect
-from PyQt6.QtGui import QShowEvent, QRegularExpressionValidator, QIntValidator, QResizeEvent
+from PyQt6.QtGui import QShowEvent, QRegularExpressionValidator, QIntValidator, QResizeEvent, QIcon
 from PyQt6.QtWidgets import *
 from styles import *
 from core.utils import API_ENDPOINTS, POST, GET, UtilityFunctions, LoadingOverlay, OTPSenderThread, OTPInput, SlidingBackgroundFrame
@@ -803,6 +803,7 @@ class LandingWindow(QMainWindow):
         screen_height = screen.height()
         self.setMinimumSize(screen_width-300, screen_height-200)
         self.setWindowTitle("Canteen Manager App (User Login)")
+        self.setWindowIcon(QIcon(UtilityFunctions.resource_path("assets/desktop-icon.png")))
         if geometry:
             self.setGeometry(geometry)
         
@@ -909,5 +910,5 @@ class LandingWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = LandingWindow()
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec())
